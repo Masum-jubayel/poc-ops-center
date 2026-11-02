@@ -1,0 +1,28 @@
+rules_version = '2';
+// POC Ops Center — Firestore security rules.
+// Replace the owner email below if it changes. Paste this whole file in Firebase console > Firestore > Rules > Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner() { return signedIn() && request.auth.token.email != null
+                          && request.auth.token.email.lower() == 'masum@expertmobile.ca'; }
+    function rolesDoc() { return get(/databases/$(database)/documents/access/roles).data; }
+    function listed() { return signedIn() && exists(/databases/$(database)/documents/access/roles)
+                          && rolesDoc().users.keys().hasAny([request.auth.uid])
+                          && rolesDoc().users[request.auth.uid].get('disabled', false) != true; }
+    function hasAccess() { return isOwner() || listed(); }
+    function isAdmin()   { return isOwner() || (listed() && rolesDoc().users[request.auth.uid].role == 'admin'); }
+    function isManager() { return isAdmin() || (listed() && rolesDoc().users[request.auth.uid].role == 'manager'); }
+
+    // Everyone who signs in may create their own profile (so admins can find them) and read the access list.
+    match /profiles/{uid}  { allow read: if signedIn(); allow write: if signedIn() && request.auth.uid == uid; }
+    match /access/roles    { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /presence/{uid}  { allow read: if hasAccess(); allow write: if signedIn() && request.auth.uid == uid; }
+    match /assets/{id}     { allow read: if signedIn(); allow write: if isAdmin(); }
+    // Managers (and admins) can record actions and edit fleet maps.
+    match /actions/{id}    { allow read: if hasAccess(); allow write: if isManager(); }
+    match /fleetmap/{id}   { allow read: if hasAccess(); allow write: if isManager(); }
+    // Everything else (companies, sims, settings, history, meta, log, system): read with access, write admins only.
+    match /{coll}/{id}     { allow read: if hasAccess(); allow write: if isAdmin(); }
+  }
+}
