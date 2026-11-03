@@ -8,11 +8,12 @@ var auth=firebase.auth(),fs=firebase.firestore();
 var ownerEmail=String(CFG.ownerEmail||"").trim().toLowerCase();
 var resolveUser,userP=new Promise(function(r){resolveUser=r});
 var assetCache={};
-window.__assetUrl=function(id){return assetCache[id]||"data:image/gif;base64,R0lGODlhAQABAAAAACw="};
+var assetReq={};window.__pocSite=true;
+window.__assetUrl=function(id){if(assetCache[id])return assetCache[id];if(id&&!assetReq[id]&&auth.currentUser){assetReq[id]=1;fs.doc("assets/"+id).get().then(function(d){if(d.exists){assetCache[id]=d.data().data;window.dispatchEvent(new CustomEvent("poc-asset",{detail:id}))}else assetReq[id]=0}).catch(function(){setTimeout(function(){assetReq[id]=0},3000)})}return "data:image/gif;base64,R0lGODlhAQABAAAAACw="};
 function initials(n){return String(n||"?").split(/[\s@.]+/).filter(Boolean).slice(0,2).map(function(x){return x[0].toUpperCase()}).join("")}
 function avatar(name,color){var s='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="32" fill="'+color+'"/><text x="32" y="41" font-family="Arial" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">'+initials(name)+'</text></svg>';return "data:image/svg+xml;base64,"+btoa(s)}
 function colorOf(id){var h=0;for(var i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return "hsl("+(h%360)+",55%,45%)"}
-function profileOf(id,p){p=p||{};var c=colorOf(id);return {id:id,name:p.name||"",avatarUrl:p.photo||avatar(p.name||p.email||"?",c),color:c,email:p.email||null,isMe:auth.currentUser&&auth.currentUser.uid===id,guest:false}}
+function profileOf(id,p){p=p||{};var c=colorOf(id);return {id:id,name:p.name||"",avatarUrl:p.photo||avatar(p.name||p.email||"?",c),color:c,email:p.email||null,at:p.at||null,isMe:auth.currentUser&&auth.currentUser.uid===id,guest:false}}
 function showLogin(msg){
   var old=document.getElementById("pocLogin");if(old)old.remove();
   var d=document.createElement("div");d.id="pocLogin";d.className="poc-login";
@@ -51,6 +52,7 @@ var api={
   user:function(){return userP.then(function(u){var own=isOwner(u);var me={id:u.uid,name:u.displayName||(u.email||"").split("@")[0],avatarUrl:u.photoURL||avatar(u.displayName||u.email,colorOf(u.uid)),color:colorOf(u.uid),email:u.email||null,isOwner:own,canEdit:own};
     return {me:function(){return Promise.resolve(me)},id:function(){return Promise.resolve(me.id)},name:function(){return Promise.resolve(me.name)},isOwner:function(){return Promise.resolve(own)},canEdit:function(){return Promise.resolve(own)},can:function(){return Promise.resolve(null)},email:function(){return Promise.resolve(me.email)},
       profiles:function(ids){ids=[].concat(ids);return Promise.all(ids.map(function(id){return fs.doc("profiles/"+id).get().then(function(d){return profileOf(id,d.exists?d.data():null)}).catch(function(){return profileOf(id,null)})})).then(function(a){var o={};a.forEach(function(p){o[p.id]=p});return o})},
+      list:function(){return fs.collection("profiles").limit(1000).get().then(function(s){return s.docs.map(function(d){return profileOf(d.id,d.data())})})},
       search:function(q){q=String(q||"").toLowerCase().trim();return fs.collection("profiles").limit(500).get().then(function(s){return s.docs.map(function(d){return Object.assign({id:d.id},d.data())}).filter(function(p){return !q||(p.nameLower||"").indexOf(q)>=0}).slice(0,8).map(function(p){return profileOf(p.id,p)})}).catch(function(){return []})}}})},
   assets:function(){return userP.then(function(u){return {upload:function(blob){return new Promise(function(res,rej){if(blob.size>700000){rej({code:"too_large",message:"Use an image under 700 KB"});return}var r=new FileReader();r.onload=function(){var id=Math.random().toString(36).slice(2)+Date.now().toString(36);fs.doc("assets/"+id).set({data:r.result,type:blob.type,at:new Date().toISOString()}).then(function(){assetCache[id]=r.result;res({id:id,url:r.result,sizeBytes:blob.size,contentType:blob.type})}).catch(rej)};r.onerror=rej;r.readAsDataURL(blob)})},list:function(){return Promise.resolve({assets:[]})},delete:function(id){return fs.doc("assets/"+id).delete()}}})},
   downloads:function(){return Promise.resolve({save:function(o){var b=o.data instanceof Blob?o.data:new Blob([o.data]);var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=o.filename;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},2000);return Promise.resolve({status:"saved"})}})}
