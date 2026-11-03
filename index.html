@@ -738,7 +738,7 @@ async function initDb(){
   claude.use("downloads").then(d=>{S.dl=d}).catch(()=>{});
   if(user){S.me=await user.me();}
   if(!db){S.noDb=true;S.ready.c=S.ready.s=true;S.role=S.me&&S.me.isOwner?"admin":null;S.gateChecked=true;render();return}
-  db.doc("access/roles").onSnapshot(s=>{S.roles=(s.exists&&s.data().users)||{};resolveRole();},()=>{S.roles={};resolveRole()});
+  db.doc("access/roles").onSnapshot(s=>{S.roles=(s.exists&&s.data().users)||{};S.invites=(s.exists&&s.data().invites)||{};resolveRole();},()=>{S.roles={};resolveRole()});
   db.doc("settings/main").onSnapshot(s=>{S.settings=s.exists?s.data():{};let own=null;try{own=localStorage.getItem("poc-theme")}catch(_){}if(!own&&(S.settings.defaultTheme==="dark"||S.settings.defaultTheme==="light")&&document.documentElement.getAttribute("data-theme")!==S.settings.defaultTheme)setTheme(S.settings.defaultTheme);paintLogo();rebuild()},()=>{});
   db.collection("actions").limit(5000).onSnapshot(s=>{const o={};for(const d of s.docs)o[d.id]=d.data();S.actions=o;if(S.model)render(true)},()=>{});
   db.collection("companies").limit(1000).onSnapshot(snap=>{S.companies=snap.docs.map(d=>d.data()).filter(Boolean);S.ready.c=true;rebuild()},e=>{S.ready.c=true;S.dbErr=e&&e.code;render()});
@@ -1728,7 +1728,7 @@ function importHistory(){const box=el("div",{class:"feed"},el("p",{class:"hint",
   if(S.db)S.db.collection("log").orderBy("at","desc").limit(150).get().then(s=>{const L=s.docs.map(d=>d.data()).filter(x=>/import|upload|restore|download|backup/.test(x.what)).slice(0,25);box.replaceChildren(...(L.length?L.map(x=>el("div",{class:"al low",style:"cursor:default"},el("span",{class:"bar"}),el("div",{},el("div",{class:"t",text:x.what}),el("div",{class:"d",text:x.detail})),el("div",{class:"c",style:"color:var(--muted)",text:new Date(x.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}))):[el("p",{class:"hint",text:"No imports or downloads recorded yet."})]))}).catch(()=>box.replaceChildren(el("p",{class:"hint",text:"History unavailable."})));
   return el("div",{class:"card mt"},el("h3",{text:"Import & download history"}),box)}
 const baseData=VIEWS.data;
-VIEWS.data=v=>{baseData(v);const first=v.querySelector(".grid.g4");const after=first?first.nextSibling:null;const add=[exportBuilder(),quickDownloads(),dataQuality()];add.forEach(n=>v.insertBefore(n,after));if(S.role==="admin")v.append(importHistory())};
+VIEWS.data=v=>{baseData(v);if(!S.model)return;const first=v.querySelector(".grid.g4");const after=first?first.nextSibling:null;const add=[exportBuilder(),quickDownloads(),dataQuality()];add.forEach(n=>v.insertBefore(n,after));if(S.role==="admin")v.append(importHistory())};
 
 /* ================= users view ================= */
 const ROLE_INFO={admin:"Everything, including users, settings, uploads and clean-up",manager:"View, export and record actions on devices and SIMs",viewer:"View and export",agent:"Only the companies of their assigned agent"};
@@ -2439,6 +2439,297 @@ const baseProfit=VIEWS.profit;
 VIEWS.profit=v=>{baseProfit(v);const m=M(),P=pricing();if(P.empty)return;const ex=profitExtras(m,P);const pe=v.querySelector("#priceEd");
   const g1=el("div",{class:"grid g2 mt"},ex[0],ex[1]),g2=el("div",{class:"mt"},ex[2]),g3=el("div",{class:"grid g2 mt"},ex[3],ex[4]);
   [g1,g2,g3].forEach(n=>pe?v.insertBefore(n,pe):v.append(n))};
+
+
+/* ================= v16: logo fit, people & invites, role controls, view-as preview ================= */
+IC.eye='<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
+IC.mail='<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>';
+IC.copy='<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>';
+IC.wrench='<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>';
+document.head.append(el("style",{text:`
+.logo-prev{width:220px;max-width:100%;min-width:0;height:84px;overflow:hidden}
+.logo-prev img{max-width:196px!important;max-height:70px!important;width:auto;height:auto;object-fit:contain;display:block}
+.logo-prev.round{width:84px;min-width:84px;height:84px;padding:3px}
+.logo-prev.round img{width:100%!important;height:100%!important;object-fit:cover;border-radius:50%}
+.toplogo img{max-width:240px;object-fit:contain}
+.lmeta{font:600 11.5px var(--f-num);color:var(--muted);margin-top:2px}
+.lwarn{font-size:12.5px;color:var(--warn);margin-top:4px}
+.hdrprev{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;border:1px solid var(--line)}
+.hdrprev.dk{background:#03080f;color:#d6f5ff}.hdrprev.lt{background:#f4f3fb;color:#1d1838}
+.hdrprev .hp-logo{height:40px;padding:5px 10px;border-radius:10px;background:#fff;display:flex;align-items:center}.hdrprev .hp-logo img{height:28px;max-width:200px;object-fit:contain}
+.hdrprev .hp-c{width:40px;height:40px;border-radius:50%;background:#fff;padding:2px;box-shadow:0 0 0 2px #22d3ee;flex:none}.hdrprev .hp-c img,.hdrprev .hp-c svg{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.hdrprev b{font:800 14px var(--f-hud);letter-spacing:.12em}
+.rolepick{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.rolec{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel2);cursor:pointer;text-align:left;color:var(--fg);font:inherit;display:flex;flex-direction:column;gap:4px}
+.rolec b{font:800 13px var(--f-hud);letter-spacing:.1em;text-transform:uppercase}
+.rolec small{color:var(--muted);font-size:12px;line-height:1.35}
+.rolec.on{border-color:var(--acc);background:var(--acc-soft);box-shadow:var(--glow)}
+.rolec .can{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}.rolec .can span{font:700 10px var(--f-lab);letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:999px;background:var(--panel);border:1px solid var(--line)}
+.rolec .can span.no{opacity:.45;text-decoration:line-through}
+.addbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);min-height:46px}
+.addbox input{flex:1;min-width:220px;border:0;background:none;outline:none;font:500 14px var(--f-body);color:var(--fg);padding:6px}
+.pchip{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 10px;border-radius:999px;background:var(--acc-soft);border:1px solid var(--acc);font-size:13px}
+.pchip.inv{background:var(--acc2-soft);border-color:var(--acc2)}
+.pchip button{border:0;background:none;color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:0 4px}
+.quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.msgbox{white-space:pre-wrap;font:500 13px var(--f-body);padding:10px 12px;border-radius:10px;background:var(--panel2);border:1px dashed var(--line);margin-top:8px}
+.uchk{width:18px;height:18px;accent-color:var(--acc);flex:none}
+.bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:var(--acc-soft);border:1px solid var(--acc);margin-bottom:10px}
+.waitrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.waitrow img{width:32px;height:32px;border-radius:50%}
+.navmx td,.navmx th{text-align:center}.navmx td:first-child,.navmx th:first-child{text-align:left}
+.pvpill{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:95;display:flex;gap:10px;align-items:center;padding:8px 10px 8px 16px;border-radius:999px;background:var(--acc2);color:#1a1200;font:700 13px var(--f-lab);letter-spacing:.04em;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.pvpill svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2}
+.pvpill .btn{background:#1a1200;color:#fff;border-color:#1a1200}
+body.previewing #main{outline:3px dashed var(--acc2);outline-offset:-6px;border-radius:14px}
+.maint{max-width:560px;margin:10vh auto;text-align:center}
+`}));
+
+/* ---- logos: load late-arriving images, trim and shrink uploads ---- */
+window.addEventListener("poc-asset",()=>{paintLogo();if(S.view==="admin"&&S.model)render(true)});
+async function prepLogo(blob,key){
+  if(!/^image\/(png|jpeg|webp|gif)$/.test(blob.type||""))return {blob,ratio:0};
+  const url=URL.createObjectURL(blob);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error("The image could not be read"));i.src=url});
+    const W=img.naturalWidth,H=img.naturalHeight;const s0=Math.min(1,900/Math.max(W,H));const w0=Math.max(1,Math.round(W*s0)),h0=Math.max(1,Math.round(H*s0));
+    const c=document.createElement("canvas");c.width=w0;c.height=h0;const x=c.getContext("2d",{willReadFrequently:true});x.drawImage(img,0,0,w0,h0);const d=x.getImageData(0,0,w0,h0).data;
+    const at=(X,Y)=>(Y*w0+X)*4;const corners=[at(0,0),at(w0-1,0),at(0,h0-1),at(w0-1,h0-1)];
+    const transp=corners.filter(k=>d[k+3]<16).length>=3;const white=!transp&&corners.filter(k=>d[k+3]>200&&d[k]>240&&d[k+1]>240&&d[k+2]>240).length>=3;
+    let x0=0,y0=0,x1=w0-1,y1=h0-1;
+    if(transp||white){x0=w0;y0=h0;x1=-1;y1=-1;for(let Y=0;Y<h0;Y++)for(let X=0;X<w0;X++){const k=at(X,Y);const bg=transp?d[k+3]<16:(d[k]>240&&d[k+1]>240&&d[k+2]>240);if(!bg){if(X<x0)x0=X;if(X>x1)x1=X;if(Y<y0)y0=Y;if(Y>y1)y1=Y}}if(x1<0){x0=0;y0=0;x1=w0-1;y1=h0-1}}
+    const cw=x1-x0+1,ch=y1-y0+1;const pad=Math.round(Math.max(cw,ch)*(key==="logoCircle"?.02:.04));
+    let sx=(x0-pad)/s0,sy=(y0-pad)/s0,sw=(cw+2*pad)/s0,sh=(ch+2*pad)/s0;
+    if(key==="logoCircle"){const side=Math.max(sw,sh);sx-=(side-sw)/2;sy-=(side-sh)/2;sw=sh=side}
+    const maxW=key==="logoCircle"?320:900,maxH=key==="logoCircle"?320:200;const sc=Math.min(1,maxW/sw,maxH/sh);
+    const o=document.createElement("canvas");o.width=Math.max(1,Math.round(sw*sc));o.height=Math.max(1,Math.round(sh*sc));const ox=o.getContext("2d");
+    if(key==="logoCircle"&&!transp){ox.fillStyle="#fff";ox.fillRect(0,0,o.width,o.height)}
+    ox.imageSmoothingQuality="high";ox.drawImage(img,sx,sy,sw,sh,0,0,o.width,o.height);
+    let out=await new Promise(r=>o.toBlob(r,"image/png"));if(out&&out.size>300000){const wb=await new Promise(r=>o.toBlob(r,"image/webp",.92));if(wb&&wb.size<out.size)out=wb}
+    return {blob:out||blob,w:o.width,h:o.height,ratio:o.width/o.height,before:blob.size,trimmed:transp||white}
+  }finally{URL.revokeObjectURL(url)}
+}
+uploadLogo=async function(blob,key="logoAsset",opts={}){
+  if(!S.assets){toast("Only admins can upload a logo.");return}
+  if(!/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(blob.type||"")){toast("Use a PNG, JPG, WebP or SVG image.");return}
+  let p;try{p=await prepLogo(blob,key)}catch(e){toast((e&&e.message)||"The image could not be read");return}
+  if(key==="logoAsset"&&p.ratio&&p.ratio<1.6&&!opts.force&&!confirm(`This image is almost square (${p.ratio.toFixed(2)} : 1). In the header it is only 30 px tall, so any words under the mark become tiny.\n\nTip: use "Make a wide logo" in Admin → Branding to build one from the circle logo and the company name.\n\nUse this image as the wide logo anyway?`))return;
+  const old=(S.settings||{})[key];
+  try{const r=await S.assets.upload(p.blob);await saveSettings({[key]:r.id});toast(`Logo updated${p.before?` · ${Math.round(p.before/1024)} KB → ${Math.round(p.blob.size/1024)} KB`:""}`);logAct("branding",(key==="logoCircle"?"Circle":"Wide")+" logo "+(opts.what||"uploaded"));
+    if(old&&old!==r.id&&!Object.values(S.settings||{}).includes(old))try{await S.assets.delete(old)}catch(_){}}
+  catch(e){toast("Logo not saved: "+((e&&(e.message||e.code))||e))}
+};
+async function blobOf(id){const r=await fetch(aurl(id));if(!r.ok)throw new Error("Logo could not be loaded");return await r.blob()}
+async function makeWideLogo(name){
+  const cid=(S.settings||{}).logoCircle;let mark=null;
+  if(cid){const b=await blobOf(cid);const u=URL.createObjectURL(b);mark=await new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=u})}
+  const words=String(name||"Expert Mobile Communications").trim().toUpperCase().split(/\s+/);const mid=Math.ceil(words.length/2);const lines=words.length>2?[words.slice(0,mid).join(" "),words.slice(mid).join(" ")]:[words.join(" ")];
+  const H=200,M=mark?H:0,gap=mark?28:0;const c=document.createElement("canvas");const x=c.getContext("2d");const fs=lines.length>1?70:84;x.font=`900 ${fs}px "Arial Black", Arial, sans-serif`;
+  const tw=Math.max(...lines.map(l=>x.measureText(l).width));c.width=Math.ceil(M+gap+tw+12);c.height=H;
+  if(mark){x.save();x.beginPath();x.arc(H/2,H/2,H/2-2,0,Math.PI*2);x.closePath();x.clip();x.fillStyle="#fff";x.fillRect(0,0,H,H);const s=Math.min(mark.naturalWidth,mark.naturalHeight);x.drawImage(mark,(mark.naturalWidth-s)/2,(mark.naturalHeight-s)/2,s,s,0,0,H,H);x.restore()}
+  x.font=`900 ${fs}px "Arial Black", Arial, sans-serif`;x.fillStyle="#0b2340";x.textBaseline="middle";
+  lines.forEach((l,i)=>x.fillText(l,M+gap,lines.length>1?H/2+(i?1:-1)*fs*.58:H/2));
+  const b=await new Promise(r=>c.toBlob(r,"image/png"));await uploadLogo(b,"logoAsset",{force:true,what:"built from the circle logo"})}
+function imgInfo(id,box){if(!id){box.textContent="Not set — the EM mark is used.";return}const i=new Image();i.onload=()=>{const r=i.naturalWidth/i.naturalHeight;let kb="";try{const u=aurl(id);if(u.startsWith("data:"))kb=" · "+Math.round(u.length*.75/1024)+" KB"}catch(_){}box.textContent=`${i.naturalWidth} × ${i.naturalHeight} px${kb} · shape ${r.toFixed(2)} : 1`};i.src=aurl(id)}
+function brandingExtras(card){
+  const ST=S.settings||{};
+  card.querySelectorAll(".logo-slot").forEach(sl=>{const key=sl.dataset.logoSlot;const info=el("div",{class:"lmeta"});imgInfo(ST[key],info);const box=sl.children[1];if(box)box.append(info);
+    if(key==="logoAsset"&&ST.logoAsset){const i=new Image();i.onload=()=>{if(i.naturalWidth/i.naturalHeight<1.6&&box)box.append(el("div",{class:"lwarn",text:"This image is almost square, so the words under the mark are tiny in the header. Use “Make a wide logo” below, or upload a horizontal logo."}))};i.src=aurl(ST.logoAsset)}});
+  const nm=el("input",{class:"inp",value:"Expert Mobile Communications",style:"flex:1;min-width:200px",maxlength:60});
+  const busy=fn=>async e=>{const b=e.currentTarget;b.disabled=true;try{await fn()}catch(err){toast((err&&err.message)||String(err))}b.disabled=false};
+  card.append(
+    el("h3",{style:"margin-top:16px",text:"Logo tools"}),
+    el("div",{class:"filters"},nm,el("button",{class:"btn pri",onclick:busy(()=>makeWideLogo(nm.value))},icon("wrench"),"Make a wide logo")),
+    el("p",{class:"hint",text:"Builds a horizontal logo: the circle logo on the left, the name on the right. It fits the header perfectly."}),
+    el("div",{class:"filters mt"},
+      el("button",{class:"btn",disabled:!(ST.logoAsset||ST.logoCircle)||null,onclick:busy(async()=>{for(const k of ["logoAsset","logoCircle"])if((S.settings||{})[k])await uploadLogo(await blobOf(S.settings[k]),k,{force:true,what:"trimmed and resized"})})},"Auto-fit both logos"),
+      el("button",{class:"btn",disabled:!(ST.logoAsset&&ST.logoCircle)||null,onclick:()=>{saveSettings({logoAsset:ST.logoCircle,logoCircle:ST.logoAsset});logAct("branding","Swapped wide and circle logos")}},"Swap wide ↔ circle")),
+    el("p",{class:"hint",text:"Auto-fit cuts empty borders and shrinks big images (smaller logos load faster for everyone). New uploads are fitted automatically."}),
+    el("h3",{style:"margin-top:16px",text:"Preview"}),
+    el("div",{style:"display:grid;gap:8px"},...["dk","lt"].map(t=>el("div",{class:"hdrprev "+t},el("div",{class:"hp-c"},ST.logoCircle?el("img",{src:aurl(ST.logoCircle),alt:""}):emMark(36)),ST.logoAsset?el("div",{class:"hp-logo"},el("img",{src:aurl(ST.logoAsset),alt:""})):null,el("b",{text:"POC OPS CENTER"}),el("span",{style:"margin-left:auto;font-size:12px;opacity:.7",text:t==="dk"?"Dark theme":"Light theme"})))));
+}
+
+/* ---- invites + roles ---- */
+S.invites=S.invites||{};S.preview=null;
+const isSite=()=>!!window.firebase;
+const siteUrl=()=>isSite()?location.origin+location.pathname:"";
+const ROLE_ORDER=["viewer","manager","agent","admin"];
+const ROLE_TITLE={viewer:"Viewer",manager:"Manager",agent:"Agent",admin:"Admin"};
+const permOf=(r,k)=>{if(r==="admin")return true;const p=((S.settings||{}).perms||{})[r]||{};return (k in p)?!!p[k]:!!(PERM_DEF[r]||{})[k]};
+saveRoles=async function(users,quiet){const clean={};for(const [k,v] of Object.entries(users||{})){const o=Object.assign({},v);delete o.fromInvite;clean[k]=o}
+  try{await w(S.db.doc("access/roles"),r=>r.set({users:clean,invites:S.invites||{}}));if(!quiet){toast("Access updated");logAct("access","Roles updated ("+Object.keys(clean).length+" people)")}}catch(e){toast(e&&e.code==="permission-denied"?"Only admins can change roles.":"Not saved: "+((e&&e.message)||e))}};
+const resolveRole0=resolveRole;
+resolveRole=function(){
+  const me=S.me||{};const em=(me.email||"").toLowerCase();const inv=em&&S.invites?S.invites[em]:null;
+  if(inv&&me.id&&!me.isOwner&&!S.roles[me.id])S.roles=Object.assign({},S.roles,{[me.id]:Object.assign({},inv,{label:me.name||em,email:em,fromInvite:true})});
+  const pv=S.preview;resolveRole0();
+  if(pv){if(S.role==="admin"){S.role=pv.role;S.agent=pv.agent||"";S.model=null;paintMe();buildRail();rebuild()}else endPreview(true)}
+  if(S.role==="admin"&&!S.preview){claimInvites();if(S.view==="users"&&S.model){const a=document.activeElement;if(!a||!a.closest||!a.closest(".view")||a.tagName==="BUTTON")render(true)}}
+};
+let lastInvite=null;
+let claiming=false;
+let profCache=null,profAt=0;
+async function allProfiles(fresh){if(!S.user||!S.user.list)return [];if(!profCache||fresh||Date.now()-profAt>60000){try{profCache=await S.user.list();profAt=Date.now()}catch(_){profCache=profCache||[]}}return profCache}
+async function findByEmail(e){e=String(e||"").toLowerCase();if(S.user&&S.user.list)return (await allProfiles()).find(p=>(p.email||"").toLowerCase()===e)||null;return null}
+async function claimInvites(force){
+  if(claiming||!S.user||!S.user.list||!S.invites||!Object.keys(S.invites).length)return;claiming=true;
+  try{await allProfiles(force);const users=Object.assign({},S.roles);const inv=Object.assign({},S.invites);let changed=0;
+    for(const e of Object.keys(inv)){const h=await findByEmail(e);if(!h)continue;
+      if(!users[h.id]||users[h.id].fromInvite)users[h.id]=Object.assign({},inv[e],{label:h.name||e,email:e,joined:new Date().toISOString()});delete inv[e];changed++}
+    if(changed){S.invites=inv;await saveRoles(users,true);logAct("access",`${changed} invited ${changed>1?"people":"person"} signed in and got access`)}}
+  finally{claiming=false}}
+
+/* ---- section visibility, landing page, maintenance ---- */
+const hiddenFor=r=>r==="admin"?[]:(((S.settings||{}).hideNav||{})[r]||[]);
+const navIds=()=>NAV.map(n=>n[0]).filter(k=>k!=="users"&&k!=="admin");
+const firstVisible=r=>{const h=hiddenFor(r);const L=((S.settings||{}).landing||{})[r];if(L&&!h.includes(L))return L;return navIds().find(k=>!h.includes(k))||"overview"};
+const route2=route;
+route=function(){const r=route2();if(!S.role)return r;const raw=(location.hash||"").slice(1);
+  if(!raw){const L=firstVisible(S.role);if(L!=="overview"&&NAV.some(n=>n[0]===L))return {view:L}}
+  const base=r.view==="company"?"companies":r.view;if(hiddenFor(S.role).includes(base))return {view:firstVisible(S.role)};return r};
+const buildRail2=buildRail;
+buildRail=function(){buildRail2();const h=hiddenFor(S.role);if(h.length)$("#rail").querySelectorAll("a[href^='#']").forEach(a=>{if(h.includes(a.getAttribute("href").slice(1)))a.remove()})};
+const render2=render;
+render=function(keep){
+  const mt=(S.settings||{}).maint;
+  if(mt&&mt.on&&S.role&&S.role!=="admin"&&S.gateChecked){S.view="maint";buildRail();$("#main").replaceChildren(el("div",{class:"view"},el("div",{class:"card maint"},el("div",{style:"display:grid;place-items:center;margin-bottom:12px"},circleNode(72)),el("h2",{style:"font:700 20px var(--f-hud);letter-spacing:.08em;text-transform:uppercase",text:"Back soon"}),el("p",{text:mt.msg||"The dashboard is being updated. Please check again shortly."})),creditNode()));return}
+  render2(keep)};
+
+/* ---- view as (preview) ---- */
+function startPreview(role,agent){if(S.role!=="admin"&&!S.preview)return;S.preview={role,agent:agent||""};S.role=role;S.agent=agent||"";S.model=null;document.body.classList.add("previewing");
+  $("#pvpill")&&$("#pvpill").remove();document.body.append(el("div",{class:"pvpill",id:"pvpill",role:"status"},icon("eye"),el("span",{text:`Viewing as ${ROLE_TITLE[role]}${agent?" · "+agent:""} — nothing you click here is saved as them`}),el("button",{class:"btn sm",onclick:()=>endPreview()},"Exit preview")));
+  paintMe();renderFresh();buildRail();location.hash=firstVisible(role);rebuild();toast(`Now showing the dashboard the way a ${role} sees it`)}
+function endPreview(silent){if(!S.preview)return;S.preview=null;document.body.classList.remove("previewing");$("#pvpill")&&$("#pvpill").remove();S.role="admin";S.agent="";S.model=null;paintMe();renderFresh();buildRail();if(!silent)location.hash="admin";rebuild()}
+function previewButtons(){const agents=[...new Set(S.companies.map(c=>c.agent).filter(Boolean))].sort();const ag=el("select",{class:"inp"},agents.map(a=>el("option",{value:a},a)));
+  return el("div",{class:"filters"},el("button",{class:"btn pri",onclick:()=>startPreview("viewer")},icon("eye"),"View as Viewer"),el("button",{class:"btn",onclick:()=>startPreview("manager")},icon("eye"),"View as Manager"),el("span",{class:"filters",style:"margin:0"},el("button",{class:"btn",onclick:()=>startPreview("agent",ag.value)},icon("eye"),"View as Agent"),ag))}
+
+/* ---- Users page (rebuilt) ---- */
+VIEWS.users=v=>{
+  if(S.role!=="admin"){location.hash="overview";return}
+  const roles=Object.assign({},S.roles);const ids=Object.keys(roles);const agents=[...new Set(S.companies.map(c=>c.agent).filter(Boolean))].sort();const inv=Object.assign({},S.invites||{});
+  const isExp=u=>u.until&&new Date(u.until+"T23:59:59")<new Date();
+  const cnt=r=>ids.filter(id=>roles[id].role===r&&!roles[id].disabled&&!isExp(roles[id])).length;const blocked=ids.filter(id=>roles[id].disabled).length;
+  const soon=ids.filter(id=>roles[id].until&&!isExp(roles[id])&&(new Date(roles[id].until)-Date.now())/DAY<14).length;
+  v.append(secH("Users","Add people, choose what they can do, see who is active, and preview the dashboard through their eyes.",el("button",{class:"btn",onclick:()=>{const D=DATASETS.find(x=>x.id==="users");pickFormat("Users",D.items().length,f=>exportAny("Users",D.cols,D.items().map(D.row),f))}},icon("dl"),"Export users")));
+  v.append(el("div",{class:"kpis"},kpi({label:"People with access",value:ids.length-blocked,ic:"users",cls:"solid"}),kpi({label:"Admins · Managers",value:cnt("admin")+1+cnt("manager"),note:`${cnt("admin")+1} admins (incl. owner) · ${cnt("manager")} managers`,ic:"admin"}),kpi({label:"Viewers · Agents",value:cnt("viewer")+cnt("agent"),note:`${cnt("viewer")} viewers · ${cnt("agent")} agents`,ic:"users"}),kpi({label:"Invites · Blocked",value:Object.keys(inv).length,note:`${Object.keys(inv).length} waiting to sign in · ${blocked} blocked · ${soon} ending ≤ 14 days`,ic:"power",cls:blocked||soon?"orange":""})));
+
+  /* -- add people -- */
+  let pick=[];let role="viewer";let until="";let agent=agents[0]||"";
+  const chips=el("div",{style:"display:contents"});const qi=el("input",{type:"text",placeholder:isSite()?"Type emails (comma or Enter) or search a name…":"Type a colleague's name…","aria-label":"People to add"});
+  const res=el("div",{class:"sres",style:"position:static;margin-top:6px",hidden:true});
+  const drawChips=()=>{chips.replaceChildren(...pick.map((p,i)=>el("span",{class:"pchip"+(p.email&&!p.id?" inv":""),title:p.email&&!p.id?"Not signed in yet — gets an invite":"Has signed in"},p.name||p.email,el("button",{"aria-label":"Remove "+(p.name||p.email),onclick:()=>{pick.splice(i,1);drawChips()}},"×"))));go.textContent=pick.length?`Give ${ROLE_TITLE[role]} access to ${pick.length} ${pick.length>1?"people":"person"}`:"Give access";go.disabled=!pick.length||null};
+  const EM=/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
+  const addTokens=async txt=>{const toks=String(txt).split(/[\s,;<>]+/).map(t=>t.trim().toLowerCase()).filter(Boolean);let bad=0;
+    for(const t of toks){if(!EM.test(t)){bad++;continue}if(pick.some(p=>p.email===t))continue;let h=null;try{h=await findByEmail(t)}catch(_){}
+      if(h&&roles[h.id]&&!roles[h.id].fromInvite){toast((h.name||t)+" already has access — change them in the list below.");continue}
+      if(!h&&!isSite()){toast("Email invites work on the website version. Here, search by name.");continue}pick.push(h?{id:h.id,name:h.name||t,email:t}:{email:t})}
+    if(bad&&!toks.every(t=>!EM.test(t)))toast(bad+" item(s) skipped — not an email");drawChips()};
+  qi.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===","||e.key===";")&&qi.value.trim()){if(/@/.test(qi.value)){e.preventDefault();addTokens(qi.value);qi.value="";res.hidden=true}}else if(e.key==="Backspace"&&!qi.value&&pick.length){pick.pop();drawChips()}});
+  qi.addEventListener("paste",e=>{const t=(e.clipboardData&&e.clipboardData.getData("text/plain"))||"";if(/@/.test(t)&&/[\s,;]/.test(t.trim())){e.preventDefault();addTokens(t)}});
+  qi.addEventListener("input",async()=>{const q=qi.value.trim();if(!q||EM.test(q)||!S.user){res.hidden=true;return}const hits=await S.user.search(q);
+    res.replaceChildren(...(hits.length?hits.map(h=>{const has=roles[h.id]&&!roles[h.id].fromInvite;return el("button",{disabled:has||null,onclick:()=>{if(!pick.some(p=>p.id===h.id))pick.push({id:h.id,name:h.name,email:(h.email||"").toLowerCase()||null});qi.value="";res.hidden=true;drawChips();qi.focus()}},el("img",{src:h.avatarUrl,alt:"",style:"width:24px;height:24px;border-radius:50%"}),el("span",{text:h.name+(h.email?" · "+h.email:"")}),el("small",{text:has?"already has access":"Add"}))}):[el("div",{class:"hint",style:"padding:8px",text:isSite()?"Nobody with that name has signed in yet. Type their email instead — they get access the first time they sign in.":"No match. Ask them to open this page once, then search again."})]));res.hidden=false});
+  const rp=el("div",{class:"rolepick"});const agSel=el("select",{class:"inp",onchange:e=>{agent=e.target.value}},agents.map(a=>el("option",{value:a},a)));const agWrap=el("label",{class:"hint",hidden:true},"Agent ",agSel);
+  const drawRoles=()=>{rp.replaceChildren(...ROLE_ORDER.map(r=>el("button",{type:"button",class:"rolec"+(role===r?" on":""),onclick:()=>{role=r;agWrap.hidden=r!=="agent";drawRoles();drawChips()}},el("b",{text:ROLE_TITLE[r]}),el("small",{text:ROLE_INFO[r]}),el("div",{class:"can"},el("span",{text:"view"}),...PERM_LABEL.map(([k,l])=>el("span",{class:permOf(r,k)?"":"no",text:({act:"actions",bulk:"bulk",export:"download",fleet:"fleet maps"})[k]||l.toLowerCase()})),r==="admin"?el("span",{text:"users & settings"}):null))))};
+  const dIn=el("input",{class:"inp",type:"date","aria-label":"Access until",onchange:e=>{until=e.target.value;qs.querySelectorAll(".chipbtn").forEach(b=>b.classList.remove("on"))}});
+  const plus=n=>{const d=new Date(Date.now()+n*DAY);return d.toISOString().slice(0,10)};
+  const qs=el("div",{class:"quick"},el("span",{class:"hint",text:"Access ends:"}),...[["No end",""],["30 days",30],["90 days",90],["1 year",365]].map(([l,n],i)=>el("button",{class:"chipbtn"+(i===0?" on":""),onclick:e=>{until=n===""?"":plus(n);dIn.value=until;qs.querySelectorAll(".chipbtn").forEach(b=>b.classList.remove("on"));e.currentTarget.classList.add("on")}},l)),dIn);
+  const note=el("input",{class:"inp",placeholder:"Note (team, phone, reason) — optional",style:"flex:1;min-width:220px",maxlength:200});
+  const out=el("div",{hidden:true});
+  const go=el("button",{class:"btn pri",disabled:true,onclick:async()=>{if(!pick.length)return;if(role==="admin"&&!confirm(`Give ADMIN access to ${pick.length} ${pick.length>1?"people":"person"}? Admins can change users, settings and all data.`))return;
+    const base={role,agent:role==="agent"?agent:"",disabled:false,until:until||null,note:note.value.trim().slice(0,200),at:new Date().toISOString(),by:S.me.id};const invNew=Object.assign({},S.invites||{});let a=0,n=0;
+    for(const p of pick){if(p.id){roles[p.id]=Object.assign({},base,{label:p.name||"",email:p.email||null});a++}else{invNew[p.email]=Object.assign({},base,{byName:S.me.name||""});n++}}
+    S.invites=invNew;await saveRoles(roles,true);logAct("access",`Gave ${role} access to ${pick.map(p=>p.name||p.email).join(", ")}`);toast(`Done · ${a} added now${n?` · ${n} invited (access starts at first sign-in)`:""}`);
+    lastInvite={pick:pick.slice(),base};out.replaceChildren(inviteCard(pick,base));out.hidden=false;pick=[];note.value="";drawChips()}},"Give access");
+  if(lastInvite){out.replaceChildren(inviteCard(lastInvite.pick,lastInvite.base));out.hidden=false}
+  drawRoles();drawChips();
+  v.append(el("div",{class:"card mt"},el("h3",{text:"Add people"}),
+    el("p",{class:"hint",style:"margin-top:0",text:"1 · Who"}),el("div",{class:"addbox",onclick:()=>qi.focus()},chips,qi),res,
+    el("p",{class:"hint",text:"2 · What they can do"}),rp,el("div",{class:"filters mt"},agWrap),
+    el("p",{class:"hint",text:"3 · For how long"}),qs,
+    el("div",{class:"filters mt"},note,go),out,
+    el("p",{class:"hint",text:isSite()?"Paste a whole list of emails at once. People who have never signed in get an invite: they have access as soon as they sign in with that email (Google or email link).":"Ask the person to open this page once, then search their name."})));
+
+  /* -- signed in but no access -- */
+  if(S.user&&S.user.list){const wl=el("div",{class:"ulist"});const wc=el("div",{class:"card mt",hidden:true},el("h3",{text:"Asked for access"}),el("p",{class:"hint",style:"margin-top:0",text:"These people signed in but are not on the list yet. One click gives them access."}),wl);v.append(wc);
+    allProfiles(true).then(all=>{const w8=all.filter(p=>!roles[p.id]&&!(S.me&&p.id===S.me.id)&&!(p.email&&inv[(p.email||"").toLowerCase()]));if(!w8.length)return;wc.hidden=false;
+      wl.replaceChildren(...w8.slice(0,40).map(p=>el("div",{class:"waitrow"},el("img",{src:p.avatarUrl,alt:""}),el("div",{},el("b",{text:p.name||p.email}),el("div",{class:"hint",text:(p.email||"")+(p.at?" · first seen "+new Date(p.at).toLocaleDateString("en-CA",{dateStyle:"medium"}):"")})),
+        el("div",{class:"quick"},...["viewer","manager","agent"].map(r=>el("button",{class:"btn sm"+(r==="viewer"?" pri":""),onclick:()=>{roles[p.id]={role:r,agent:r==="agent"?(agents[0]||""):"",disabled:false,label:p.name||"",email:(p.email||"").toLowerCase()||null,until:null,at:new Date().toISOString(),by:S.me.id};saveRoles(roles,true);logAct("access",`Gave ${p.name||p.email} ${r} access`);toast(`${p.name||p.email} is now a ${r}`)}},ROLE_TITLE[r])),el("button",{class:"btn sm",title:"Hide from this list",onclick:e=>{e.currentTarget.closest(".waitrow").remove()}},"Ignore")))))}).catch(()=>{})}
+
+  /* -- pending invites -- */
+  const ie=Object.entries(inv);
+  if(ie.length)v.append(el("div",{class:"card mt"},el("h3",{text:`Invites waiting (${ie.length})`}),el("p",{class:"hint",style:"margin-top:0",text:"Access starts automatically when they sign in with this email. Send them the message so they know."}),
+    el("div",{class:"ulist"},ie.map(([em,u])=>el("div",{class:"urow",style:"grid-template-columns:1fr auto auto auto auto"},el("div",{},el("b",{text:em}),el("div",{class:"hint",text:`invited ${u.at?new Date(u.at).toLocaleDateString("en-CA",{dateStyle:"medium"}):""}${u.until?" · until "+u.until:""}${u.note?" · "+u.note:""}`})),el("span",{class:"pill p-acc",text:u.role+(u.agent?" · "+u.agent:"")}),
+      el("button",{class:"btn sm",onclick:()=>{copyText(inviteText({email:em},u))}},icon("copy"),"Copy message"),el("a",{class:"btn sm",href:mailto(em,u)},icon("mail"),"Email"),
+      el("button",{class:"btn sm",onclick:()=>{if(!confirm("Cancel the invite for "+em+"?"))return;const n=Object.assign({},S.invites);delete n[em];S.invites=n;saveRoles(roles,true);logAct("access","Cancelled invite "+em);toast("Invite cancelled")}},"Cancel")))),
+    el("div",{class:"filters mt"},el("button",{class:"btn sm",onclick:async()=>{await claimInvites(true);toast("Checked — anyone who signed in now has access")}},"Check sign-ins now"))));
+
+  /* -- people list with bulk actions -- */
+  const sel=new Set();const list=el("div",{class:"ulist"});const fq=el("input",{class:"inp",type:"search",placeholder:"Filter by name, email, note, agent…",style:"flex:1"});
+  const fr=el("select",{class:"inp"},el("option",{value:""},"Everyone"),ROLE_ORDER.map(r=>el("option",{value:"r:"+r},ROLE_TITLE[r]+"s")),el("option",{value:"blocked"},"Blocked"),el("option",{value:"soon"},"Access ending ≤ 14 days"),el("option",{value:"expired"},"Access expired"),el("option",{value:"idle"},"Not seen for 60+ days"));
+  const bulk=el("div",{class:"bulkbar",hidden:true});let pres={},ps={};
+  const upd=(id,patch,what)=>{roles[id]=Object.assign({},roles[id],patch);saveRoles(roles,true);toast("Saved");if(what)logAct("access",what)};
+  const drawBulk=()=>{bulk.hidden=!sel.size;if(!sel.size)return;const nm=[...sel];const rs=el("select",{class:"inp"},el("option",{value:""},"Change role to…"),ROLE_ORDER.map(r=>el("option",{value:r},ROLE_TITLE[r])));const dd=el("input",{class:"inp",type:"date"});
+    const apply=(patch,what)=>{for(const id of nm)roles[id]=Object.assign({},roles[id],patch);saveRoles(roles,true);logAct("access",`${what} for ${nm.length} people`);toast(`${what} · ${nm.length} people`);sel.clear();draw()};
+    bulk.replaceChildren(el("b",{text:`${sel.size} selected`}),rs,el("button",{class:"btn sm",onclick:()=>{if(rs.value){if(rs.value==="admin"&&!confirm("Make all selected people admins?"))return;apply({role:rs.value},"Role → "+rs.value)}}},"Apply"),
+      el("span",{class:"hint",text:"End access on"}),dd,el("button",{class:"btn sm",onclick:()=>apply({until:dd.value||null},dd.value?"Access until "+dd.value:"No end date")},"Set"),
+      el("button",{class:"btn sm",onclick:()=>apply({disabled:true},"Blocked")},"Block"),el("button",{class:"btn sm",onclick:()=>apply({disabled:false},"Allowed")},"Allow"),
+      el("button",{class:"btn sm",onclick:()=>{if(!confirm(`Remove access for ${nm.length} people?`))return;for(const id of nm)delete roles[id];saveRoles(roles,true);logAct("access",`Removed ${nm.length} people`);sel.clear();draw()}},"Remove"),el("button",{class:"btn sm",onclick:()=>{sel.clear();draw()}},"Clear"))};
+  const draw=()=>{const q=fq.value.toLowerCase(),f=fr.value;
+    const shown=ids.filter(id=>roles[id]).filter(id=>{const u=roles[id],p=ps[id]||{};const seen=pres[id]&&pres[id].at;
+      if(f.startsWith("r:")&&u.role!==f.slice(2))return false;if(f==="blocked"&&!u.disabled)return false;if(f==="expired"&&!isExp(u))return false;
+      if(f==="soon"&&!(u.until&&!isExp(u)&&(new Date(u.until)-Date.now())/DAY<14))return false;if(f==="idle"&&seen&&(Date.now()-new Date(seen))/DAY<60)return false;
+      return !q||[p.name,u.label,u.email,p.email,u.note,u.agent,u.role].join(" ").toLowerCase().includes(q)}).sort((a,b)=>String((ps[a]||{}).name||roles[a].label||"").localeCompare(String((ps[b]||{}).name||roles[b].label||"")));
+    list.replaceChildren(...(shown.length?shown.map(id=>{const u=roles[id],p=ps[id]||{},nm=p.name||u.label||u.email||"Person";const seen=pres[id]&&pres[id].at;const exp=isExp(u);const mail=u.email||p.email||"";
+      return el("div",{class:"ucard"+(u.disabled||exp?" off":"")},el("div",{class:"uh"},el("input",{type:"checkbox",class:"uchk","aria-label":"Select "+nm,checked:sel.has(id)||null,onchange:e=>{e.target.checked?sel.add(id):sel.delete(id);drawBulk()}}),el("img",{src:p.avatarUrl||"",alt:""}),el("div",{style:"min-width:0;flex:1"},el("b",{text:nm}),el("div",{class:"hint",text:[mail,u.disabled?"Login blocked":exp?"Access expired":"Can log in",seen?"last seen "+new Date(seen).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"not seen yet"].filter(Boolean).join(" · ")})),el("span",{class:"pill "+(u.role==="admin"?"p-bad":u.role==="manager"?"p-warn":"p-acc"),text:u.role})),
+        el("div",{class:"form"},el("label",{},"Role",el("select",{onchange:e=>{if(e.target.value==="admin"&&!confirm(`Make ${nm} an admin?`)){e.target.value=u.role;return}upd(id,{role:e.target.value},`${nm} → ${e.target.value}`)}},ROLE_ORDER.map(r=>el("option",{value:r,selected:u.role===r},ROLE_TITLE[r])))),
+          el("label",{},"Agent (agent role)",el("select",{disabled:u.role!=="agent"?true:null,onchange:e=>upd(id,{agent:e.target.value},`${nm} agent ${e.target.value}`)},el("option",{value:""},"—"),agents.map(a=>el("option",{value:a,selected:u.agent===a},a)))),
+          el("label",{},"Access until",el("input",{type:"date",value:u.until||"",onchange:e=>upd(id,{until:e.target.value||null},`${nm} access until ${e.target.value||"no end"}`)})),
+          el("label",{},"Note",el("input",{type:"text",value:u.note||"",placeholder:"Team, phone, reason…",onchange:e=>upd(id,{note:e.target.value.slice(0,200)})}))),
+        el("div",{class:"filters",style:"margin:10px 0 0"},el("button",{class:"btn sm",onclick:()=>upd(id,{disabled:!u.disabled},`${nm} ${u.disabled?"allowed":"blocked"}`)},u.disabled?"Allow login":"Block login"),
+          exp?el("button",{class:"btn sm",onclick:()=>upd(id,{until:plus(90)},`${nm} renewed 90 days`)},"Renew 90 days"):null,
+          el("button",{class:"btn sm",onclick:()=>startPreview(u.role==="admin"?"manager":u.role,u.agent)},icon("eye"),"See what they see"),
+          mail?el("button",{class:"btn sm",onclick:()=>copyText(inviteText({email:mail,name:nm},u))},icon("copy"),"Copy welcome message"):null,
+          el("button",{class:"btn sm",onclick:()=>{if(confirm(`Remove ${nm}'s access?`)){delete roles[id];saveRoles(roles,true);logAct("access","Removed "+nm);ids.splice(ids.indexOf(id),1);draw()}}},"Remove"),el("span",{class:"hint",text:ROLE_INFO[u.role]||""})))}):[el("p",{class:"hint",text:ids.length?"Nobody matches the filter.":"Nobody added yet. You (the owner) always have admin access."})]));
+    const vis=new Set(shown);for(const id of [...sel])if(!vis.has(id))sel.delete(id);drawBulk()};
+  fq.oninput=draw;fr.onchange=draw;
+  const selAll=el("button",{class:"btn sm",onclick:()=>{list.querySelectorAll(".uchk").forEach(c=>{c.checked=true;c.dispatchEvent(new Event("change"))})}},"Select all shown");
+  v.append(el("div",{class:"card mt"},el("h3",{text:"People with access"}),el("div",{class:"filters"},fq,fr,selAll),bulk,list));
+  (async()=>{try{ps=S.user&&ids.length?await S.user.profiles(ids):{}}catch(_){}try{const s=await S.db.collection("presence").limit(500).get();for(const d of s.docs)pres[d.id]=d.data()}catch(_){}draw()})();draw();
+
+  /* -- permissions + preview -- */
+  const perms=JSON.parse(JSON.stringify((S.settings||{}).perms||{}));const val=(r,k)=>(perms[r]&&k in perms[r])?perms[r][k]:!!(PERM_DEF[r]||{})[k];
+  v.append(el("div",{class:"grid g2 mt"},
+    el("div",{class:"card"},el("h3",{text:"What each role can do"}),el("div",{class:"tbl-wrap",style:"max-height:none"},el("table",{},el("thead",{},el("tr",{},el("th",{text:"Role"}),PERM_LABEL.map(([,l])=>el("th",{text:l})),el("th",{text:"Sees"}))),
+      el("tbody",{},el("tr",{},el("td",{},el("b",{text:"admin"})),PERM_LABEL.map(()=>el("td",{text:"✓"})),el("td",{class:"hint",text:"Everything"})),
+        ["manager","viewer","agent"].map(r=>el("tr",{},el("td",{},el("b",{text:r})),PERM_LABEL.map(([k])=>el("td",{},el("label",{class:"tg",style:"padding:4px;background:none;border:0"},el("input",{type:"checkbox",checked:val(r,k)?true:null,onchange:e=>{perms[r]=Object.assign({},perms[r],{[k]:e.target.checked});saveSettings({perms});logAct("permissions",`${r}: ${k} ${e.target.checked?"on":"off"}`)}}),el("span",{class:"knob"})))),el("td",{class:"hint",text:r==="agent"?"Own agent's companies":"All companies"})))))),
+      el("p",{class:"hint",text:"Choose which sections each role sees in Admin → Role controls."})),
+    el("div",{class:"card"},el("h3",{text:"See the dashboard as someone else"}),el("p",{class:"hint",style:"margin-top:0",text:"Opens the dashboard exactly as that role sees it: their menu, their companies, their buttons. Admin and Users disappear until you press “Exit preview”."}),previewButtons())));
+};
+function inviteText(p,u){const url=siteUrl();const nm=(p.name||"").split(" ")[0];const what=u.role==="agent"?`see the companies of agent ${u.agent||"(set by admin)"}`:ROLE_INFO[u.role].charAt(0).toLowerCase()+ROLE_INFO[u.role].slice(1);
+  return `Hi${nm?" "+nm:""},\n\nYou now have ${ROLE_TITLE[u.role]} access to the POC Operations Center.\n\n${url?`Open: ${url}\nSign in with Google, or choose "Email me a link" and use ${p.email}.`:"Open the dashboard link I shared with you."}\nYou can: ${what}.${u.until?`\nYour access runs until ${u.until}.`:""}\n\n${(S.me&&S.me.name)||""}`.trim()}
+function mailto(em,u){return "mailto:"+encodeURIComponent(em)+"?subject="+encodeURIComponent("Your access to the POC Operations Center")+"&body="+encodeURIComponent(inviteText({email:em},u))}
+function copyText(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("Message copied — paste it in an email or Teams")).catch(()=>{prompt("Copy this message:",t)})}
+function inviteCard(list,u){const people=list.map(p=>({email:p.email,name:p.name}));const first=people[0]||{};const t=inviteText(first,u);
+  return el("div",{class:"ucard",style:"margin-top:12px;background:var(--panel2)"},el("div",{style:"display:flex;justify-content:space-between;align-items:center;gap:10px"},el("b",{text:"Let them know"}),el("button",{class:"btn sm",onclick:e=>{lastInvite=null;e.currentTarget.closest(".ucard").remove()}},"Done")),el("div",{class:"msgbox",text:t}),el("div",{class:"filters mt"},el("button",{class:"btn pri",onclick:()=>copyText(t)},icon("copy"),"Copy message"),
+    people.filter(p=>p.email).length?el("a",{class:"btn",href:"mailto:"+people.filter(p=>p.email).map(p=>encodeURIComponent(p.email)).join(",")+"?subject="+encodeURIComponent("Your access to the POC Operations Center")+"&body="+encodeURIComponent(t)},icon("mail"),"Open in email"):null))}
+
+/* ---- Admin: role controls card ---- */
+const baseAdmin3=VIEWS.admin;
+VIEWS.admin=v=>{baseAdmin3(v);if(S.role!=="admin")return;const ST=S.settings||{};
+  const bc=[...v.querySelectorAll(".card")].find(c=>{const h=c.querySelector("h3");return h&&h.textContent==="Branding"});if(bc)brandingExtras(bc);
+  const hide=JSON.parse(JSON.stringify(ST.hideNav||{}));const land=Object.assign({},ST.landing||{});const RR=["manager","viewer","agent"];const nav=NAV.filter(n=>n[0]!=="users"&&n[0]!=="admin");
+  const mx=el("table",{class:"navmx"},el("thead",{},el("tr",{},el("th",{text:"Section"}),RR.map(r=>el("th",{text:ROLE_TITLE[r]})))),el("tbody",{},nav.map(([k,l])=>el("tr",{},el("td",{text:l}),RR.map(r=>el("td",{},el("label",{class:"tg",style:"padding:4px;background:none;border:0;justify-content:center"},el("input",{type:"checkbox",checked:!(hide[r]||[]).includes(k)||null,onchange:e=>{const s=new Set(hide[r]||[]);e.target.checked?s.delete(k):s.add(k);hide[r]=[...s];saveSettings({hideNav:hide});logAct("roles",`${r}: ${l} ${e.target.checked?"shown":"hidden"}`)}}),el("span",{class:"knob"}))))))));
+  const landRow=el("div",{class:"form"},RR.map(r=>el("label",{},`${ROLE_TITLE[r]} opens on`,el("select",{onchange:e=>{land[r]=e.target.value;saveSettings({landing:land});logAct("roles",`${r} lands on ${e.target.value}`)}},nav.map(([k,l])=>el("option",{value:k,selected:(land[r]||"overview")===k},l))))));
+  const mt=Object.assign({on:false,msg:""},ST.maint||{});const mmsg=el("input",{class:"inp",style:"flex:1;min-width:220px",value:mt.msg||"",placeholder:"The dashboard is being updated. Back in 15 minutes."});
+  const maint=el("div",{},el("label",{class:"tg"},el("input",{type:"checkbox",checked:mt.on||null,onchange:e=>{saveSettings({maint:{on:e.target.checked,msg:mmsg.value.trim()}});logAct("settings","Maintenance "+(e.target.checked?"on":"off"))}}),el("span",{class:"knob"}),"Maintenance mode — only admins can open the dashboard"),
+    el("div",{class:"filters mt"},mmsg,el("button",{class:"btn sm",onclick:()=>{saveSettings({maint:{on:!!(S.settings.maint||{}).on,msg:mmsg.value.trim()}})}},"Save message")));
+  const card=el("div",{class:"card mt"},el("h3",{text:"Role controls"}),
+    el("p",{class:"hint",style:"margin-top:0",text:"Preview what each role sees, hide sections per role, choose their start page, or close the dashboard for maintenance."}),
+    previewButtons(),
+    el("div",{class:"grid g2 mt"},el("div",{},el("h3",{text:"Sections each role can open"}),el("div",{class:"tbl-wrap",style:"max-height:520px"},mx),el("p",{class:"hint",text:"Admins always see everything. Hidden sections disappear from the menu and their links go to the start page."})),
+      el("div",{},el("h3",{text:"Start page"}),landRow,el("h3",{style:"margin-top:16px",text:"Maintenance"}),maint,
+        el("h3",{style:"margin-top:16px",text:"People"}),el("div",{class:"filters"},el("a",{class:"btn",href:"#users"},icon("users"),"Add people & invites"),el("span",{class:"hint",text:`${Object.keys(S.roles).length} on the list · ${Object.keys(S.invites||{}).length} invites waiting`})))));
+  const g=v.querySelector(".grid.g2");if(g)g.before(card);else v.append(card)};
 
 /* ================= boot ================= */
 render();
