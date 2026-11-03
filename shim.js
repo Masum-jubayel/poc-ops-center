@@ -38,8 +38,16 @@ auth.onAuthStateChanged(function(u){
   setTimeout(function(){var t=document.querySelector(".tb-actions");if(t&&!document.getElementById("pocOut")){var b=document.createElement("button");b.id="pocOut";b.className="ibtn";b.title="Sign out";b.setAttribute("aria-label","Sign out");b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>';b.onclick=function(){auth.signOut()};t.appendChild(b)}},1500);
 });
 function isOwner(u){return !!(u&&u.email&&u.email.toLowerCase()===ownerEmail)}
+/* Firestore cannot store arrays inside arrays — encode them as {__a:[...]} on write and decode on read */
+function enc(v){if(Array.isArray(v))return v.map(function(x){return Array.isArray(x)?{__a:enc(x)}:enc(x)});if(v&&typeof v==="object"&&Object.getPrototypeOf(v)===Object.prototype){var o={};for(var k in v)if(v[k]!==undefined)o[k]=enc(v[k]);return o}return v}
+function dec(v){if(Array.isArray(v))return v.map(function(x){return (x&&typeof x==="object"&&!Array.isArray(x)&&Object.keys(x).length===1&&("__a" in x))?dec(x.__a):dec(x)});if(v&&typeof v==="object"&&Object.getPrototypeOf(v)===Object.prototype){var o={};for(var k in v)o[k]=dec(v[k]);return o}return v}
+function wdoc(sn){return {exists:sn.exists,id:sn.id,data:function(){return sn.exists?dec(sn.data()):undefined}}}
+function wq(sn){return {docs:sn.docs.map(wdoc),size:sn.size,empty:sn.empty}}
+function docW(p){var r=fs.doc(p);return {id:r.id,get:function(){return r.get().then(wdoc)},set:function(d,o){return o?r.set(enc(d),o):r.set(enc(d))},update:function(d){return r.update(enc(d))},delete:function(){return r.delete()},onSnapshot:function(f,e){return r.onSnapshot(function(sn){f(wdoc(sn))},e)}}}
+function qW(q){return {limit:function(n){return qW(q.limit(n))},orderBy:function(a,b){return qW(b?q.orderBy(a,b):q.orderBy(a))},where:function(a,b,c){return qW(q.where(a,b,c))},get:function(){return q.get().then(wq)},onSnapshot:function(f,e){return q.onSnapshot(function(sn){f(wq(sn))},e)}}}
+var dbW={doc:docW,collection:function(n){return qW(fs.collection(n))}};
 var api={
-  db:function(){return userP.then(function(){return fs})},
+  db:function(){return userP.then(function(){return dbW})},
   user:function(){return userP.then(function(u){var own=isOwner(u);var me={id:u.uid,name:u.displayName||(u.email||"").split("@")[0],avatarUrl:u.photoURL||avatar(u.displayName||u.email,colorOf(u.uid)),color:colorOf(u.uid),email:u.email||null,isOwner:own,canEdit:own};
     return {me:function(){return Promise.resolve(me)},id:function(){return Promise.resolve(me.id)},name:function(){return Promise.resolve(me.name)},isOwner:function(){return Promise.resolve(own)},canEdit:function(){return Promise.resolve(own)},can:function(){return Promise.resolve(null)},email:function(){return Promise.resolve(me.email)},
       profiles:function(ids){ids=[].concat(ids);return Promise.all(ids.map(function(id){return fs.doc("profiles/"+id).get().then(function(d){return profileOf(id,d.exists?d.data():null)}).catch(function(){return profileOf(id,null)})})).then(function(a){var o={};a.forEach(function(p){o[p.id]=p});return o})},
