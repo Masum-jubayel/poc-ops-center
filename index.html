@@ -623,8 +623,10 @@ const LIC={valid:"Valid",expiring:"Expiring ≤ window",expired:"Expired",paused
 const MATCH_CATS=[["match","Matched (Jasper)","--ok"],["other","Matched (Simplex / Hologram)","--s3"],["name","Name differs","--s5"],["customer","Wrong Jasper customer","--warn"],["dup","Same SIM on 2+ devices","--s4"],["notfound","SIM not in any carrier","--bad"],["invalid","Invalid SIM value","--s2"],["none","No SIM in Inrico","--idle"]];
 const MC=Object.fromEntries(MATCH_CATS.map(([k,l,c])=>[k,{l,c}]));
 const PAIR={both:"Device on · SIM on",waste:"Device off · SIM on (paying)",nosig:"Device on · SIM off",off:"Device off · SIM off",na:"No carrier SIM matched"};
-const ACT={open:"Open",requested:"Requested",sim_off:"SIM deactivated",lic_paused:"Licence paused",done:"Done",ignored:"Ignored"};
-const CLOSED=new Set(["sim_off","lic_paused","done","ignored"]);
+const ACT={open:"Open",requested:"Requested",sim_off:"SIM deactivated",lic_paused:"Licence paused",both_off:"SIM off + licence paused",done:"Done",ignored:"Ignored"};
+const CLOSED=new Set(["sim_off","lic_paused","both_off","done","ignored"]);
+const SIMOFF=new Set(["sim_off","both_off"]),LICOFF=new Set(["lic_paused","both_off"]);
+const offStatus=p=>p==="jasper"?"Deactivated":p==="hologram"?"PAUSED":"DEACTIVATED";
 const cv=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const col=v=>v.startsWith("--")?`var(${v})`:v;
 const settings=()=>Object.assign({expiryDays:30,offlineDays:30,simCost:{jasper:10,simplex:10,hologram:5}},S.settings||{});
@@ -694,6 +696,13 @@ function buildModel(){
       if(validSim(d.sim)){if(!simUse.has(d.sim))simUse.set(d.sim,[]);simUse.get(d.sim).push(d)}
       co.devices.push(d);devices.push(d)}
     companies.push(co)}
+  {/* your saved actions show at once, until newer platform data arrives */
+   const MA=S.meta||{};const pend=(a,src)=>{if(!a||!a.at)return false;const t=MA[src]&&MA[src].at;return !t||new Date(t)<new Date(a.at)};
+   const offS=(o,a)=>{o.status=offStatus(o.prov);o.active=false;o.pending=a.at};
+   for(const o of simList){const a=S.actions[simKey(o)];if(a&&SIMOFF.has(a.status)&&o.active&&pend(a,o.prov))offS(o,a)}
+   for(const d of devices){const a=S.actions[devKey(d)];if(!a)continue;
+     if(SIMOFF.has(a.status)&&validSim(d.sim)){const o=findSim(d.sim);if(o&&o.active&&pend(a,o.prov))offS(o,a)}
+     if(LICOFF.has(a.status)&&d.lic!=="paused"&&pend(a,"inrico")){d.lic="paused";d.active=false;d.pendingLic=a.at}}}
   const coByKey=new Map(companies.map(c=>[c.key,c]));
   const AL=(ST.aliases)||{};
   const custOk=(co,cust)=>{const k=normCo(cust);if(!k)return false;if(k===co.key)return true;const a=k.replace(/s$/,""),b=co.key.replace(/s$/,"");if(a===b)return true;if(Math.min(a.length,b.length)>=4&&(a.includes(b)||b.includes(a)))return true;return (AL[co.id]||[]).includes(k)};
@@ -753,7 +762,7 @@ async function initDb(){
   if(!db){S.noDb=true;S.ready.c=S.ready.s=true;S.role=S.me&&S.me.isOwner?"admin":null;S.gateChecked=true;render();return}
   db.doc("access/roles").onSnapshot(s=>{S.roles=(s.exists&&s.data().users)||{};S.invites=(s.exists&&s.data().invites)||{};resolveRole();},()=>{S.roles={};resolveRole()});
   db.doc("settings/main").onSnapshot(s=>{S.settings=s.exists?s.data():{};let own=null;try{own=localStorage.getItem("poc-theme")}catch(_){}if(!own&&(S.settings.defaultTheme==="dark"||S.settings.defaultTheme==="light")&&document.documentElement.getAttribute("data-theme")!==S.settings.defaultTheme)setTheme(S.settings.defaultTheme);paintLogo();rebuild()},()=>{});
-  db.collection("actions").limit(5000).onSnapshot(s=>{const o={};for(const d of s.docs)o[d.id]=d.data();S.actions=o;if(S.model){render(true);renderFresh()}},()=>{});
+  db.collection("actions").limit(5000).onSnapshot(s=>{const o={};for(const d of s.docs)o[d.id]=d.data();S.actions=o;if(S.model)rebuild()},()=>{});
   db.collection("companies").limit(1000).onSnapshot(snap=>{S.companies=snap.docs.map(d=>d.data()).filter(Boolean);S.ready.c=true;rebuild()},e=>{S.ready.c=true;S.dbErr=e&&e.code;render()});
   db.collection("sims").onSnapshot(snap=>{const o={jasper:[],hologram:[],simplex:[]};const parts=snap.docs.map(d=>d.data()).filter(Boolean).sort((a,b)=>(a.part||0)-(b.part||0));for(const p of parts)if(o[p.prov])o[p.prov].push(...(p.rows||[]));S.sims=o;S.ready.s=true;rebuild()},()=>{S.ready.s=true;render()});
   db.doc("meta/sources").onSnapshot(s=>{S.meta=s.exists?s.data():{};renderFresh();if(S.view==="data")render(true)},()=>{});
@@ -939,22 +948,27 @@ function closeDrawer(){S.drillRedraw=null;$("#drawerHost").textContent="";docume
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("#drawerHost").firstChild)closeDrawer()});
 const keyOf=(kind,x)=>kind==="device"?devKey(x):simKey(x);
 function dataAt(kind,x){const m=S.meta||{};const t=k=>m[k]&&m[k].at?new Date(m[k].at):null;if(kind==="device"){const a=t("inrico"),b=x.simRec?t(x.simRec.prov):a;return a&&b?(a<b?a:b):(a||b)}return t(x.prov)}
-function fixedNow(kind,x,st){if(kind==="device"){const s=x.simRec;if(st==="sim_off")return !(s&&s.active);if(st==="lic_paused")return x.lic==="paused";return !x.issues.some(a=>a.sev==="high")}if(st==="sim_off")return !x.active;return !(x.active&&(!x.devices.length||x.devices.some(d=>d.pair==="waste")))}
+function fixedNow(kind,x,st){if(kind==="device"){const s=x.simRec;if(st==="sim_off")return !(s&&s.active);if(st==="lic_paused")return x.lic==="paused";if(st==="both_off")return !(s&&s.active)&&x.lic==="paused";return !x.issues.some(a=>a.sev==="high")}if(SIMOFF.has(st))return !x.active;return !(x.active&&(!x.devices.length||x.devices.some(d=>d.pair==="waste")))}
 function workState(kind,x){const a=S.actions[keyOf(kind,x)]||{};const st=a.status||"open";if(!CLOSED.has(st))return {a,st,state:st==="requested"?"requested":"open"};if(st==="ignored")return {a,st,state:"ignored"};
   const at=dataAt(kind,x);if(at&&a.at&&at>new Date(a.at))return {a,st,state:fixedNow(kind,x,st)?"confirmed":"recheck",dataAt:at};return {a,st,state:"waiting"}}
 const FINISHED=new Set(["ignored","confirmed","waiting"]);
 const shortD=d=>d?new Date(d).toLocaleDateString("en-CA",{month:"short",day:"numeric"}):"";
 function workNote(w){if(w.state==="waiting")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)}. Waiting for the next weekly data pull to confirm it.`;if(w.state==="confirmed")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)} and confirmed by the ${shortD(w.dataAt)} data.`;if(w.state==="recheck")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)}, but the ${shortD(w.dataAt)} data still shows the problem. Check it again.`;return ""}
-function workPill(kind,x){const w=workState(kind,x);const m={requested:["p-acc","Requested"],ignored:["p-idle","Ignored"],waiting:["p-ok","✓ "+ACT[w.st]+" · "+shortD(w.a.at)],confirmed:["p-ok","✓ Confirmed"],recheck:["p-warn","↻ Re-check"]}[w.state];return m?el("span",{class:"pill "+m[0],title:workNote(w)||m[1],text:m[1]}):null}
-document.addEventListener("poc-act",e=>{if(S.drillRedraw)S.drillRedraw(e.detail);renderFresh()});
+function workPill(kind,x){const w=workState(kind,x);const m={requested:["p-acc","Requested"],ignored:["p-idle","Ignored"],waiting:w.st==="done"?["p-ok","✓ Done · "+shortD(w.a.at)]:null,confirmed:["p-ok","✓ Confirmed"],recheck:["p-warn","↻ Re-check"]}[w.state];return m?el("span",{class:"pill "+m[0],title:workNote(w)||m[1],text:m[1]}):null}
+function applyLocal(key,st){const T=S.drillItems;if(!T)return;const x=T.items.find(y=>keyOf(T.kind,y)===key);if(!x)return;const now=new Date().toISOString();
+  const recalc=d=>{if(d.simRec&&d.lic!=="unknown"){const sa=d.simState==="active";d.pair=d.active?(sa?"both":"nosig"):(sa?"waste":"off")}d.cost=d.pair==="waste"?d.cost:0;d.issues=d.issues.filter(i=>!(i.type==="waste"&&d.pair!=="waste")&&!(i.type==="licence-expired"&&d.pendingLic))};
+  const simOff=o=>{if(!o||!o.active)return;o._o=o._o||{status:o.status,active:o.active};o.status=offStatus(o.prov);o.active=false;o.pending=now;for(const d of o.devices){d._s=d._s||d.simState;d.simState="inactive";recalc(d)}};
+  if(T.kind==="device"){if(SIMOFF.has(st))simOff(x.simRec);if(LICOFF.has(st)&&x.lic!=="paused"){x._l=x._l||{lic:x.lic,active:x.active};x.lic="paused";x.active=false;x.pendingLic=now;recalc(x)}}
+  else if(SIMOFF.has(st))simOff(x)}
+document.addEventListener("poc-act",e=>{const a=S.actions[e.detail]||{};applyLocal(e.detail,a.status);if(S.drillRedraw)S.drillRedraw(e.detail);rebuild()});
 function drill(cfg){
   const host=$("#drawerHost");host.textContent="";document.body.style.overflow="hidden";
-  const st={tab:0,q:"",group:null,open:null,view:cfg.view||"todo",openG:null,shown:[]};const prog=el("div",{class:"dr-prog"});
+  const st={tab:0,q:"",group:null,open:null,view:"all",openG:null,shown:[]};const prog=el("div",{class:"dr-prog"});
   const tabsBox=el("div",{class:"dr-tabs"}),sum=el("div",{class:"dr-sum"}),body=el("div",{class:"dr-body"});
   const q=el("input",{class:"inp",type:"search",placeholder:"Filter by name, ID, IMEI, SIM, company…","aria-label":"Filter"});
   const gsel=el("select",{class:"inp","aria-label":"Group by"});
   const exp=el("button",{class:"btn sm"},icon("dl"),"Export CSV");
-  const draw=()=>{const T=cfg.tabs[st.tab];if(st.group==null||!GROUPS[T.kind].some(g=>g[0]===st.group))st.group=T.group||GROUPS[T.kind][0][0];
+  const draw=()=>{const T=cfg.tabs[st.tab];S.drillItems=T;if(st.group==null||!GROUPS[T.kind].some(g=>g[0]===st.group))st.group=T.group||GROUPS[T.kind][0][0];
     gsel.replaceChildren(...GROUPS[T.kind].map(([k,l])=>el("option",{value:k,selected:k===st.group},"Group: "+l)));
     tabsBox.replaceChildren(...(cfg.tabs.length>1?cfg.tabs.map((t,i)=>el("button",{class:"btn sm"+(i===st.tab?" pri":""),onclick:()=>{st.tab=i;st.group=null;draw()}},t.label+" · "+fmt(t.items.length))):[]));
     const qq=qNorm(st.q);const all=qq?T.items.filter(x=>qHit(textOf(T.kind,x),qq)):T.items;
@@ -981,15 +995,15 @@ function drill(cfg){
   const bulk=can("bulk")?el("div",{class:"dr-ctl bulk"},el("span",{class:"hint",text:"Set the action for every record shown:"}),bsel,el("button",{class:"btn sm pri",onclick:async()=>{const T=cfg.tabs[st.tab];const items=st.shown;if(!items.length||!confirm(`Set ${fmt(items.length)} records to “${ACT[bsel.value]}”?`))return;await bulkAction(items.map(x=>T.kind==="device"?devKey(x):simKey(x)),bsel.value);draw();renderFresh()}},"Apply to all")):null;
   const panel=el("div",{class:"drawer",role:"dialog","aria-modal":"true","aria-label":cfg.title},
     el("div",{class:"dr-h"},el("div",{style:"flex:1;min-width:0"},el("h2",{text:cfg.title}),cfg.sub?el("p",{text:cfg.sub}):null),el("button",{class:"ibtn",onclick:closeDrawer,"aria-label":"Close"},icon("x"))),
-    tabsBox,el("div",{class:"dr-ctl"},q,gsel,can("export")?exp:null),bulk,prog,sum,body);
+    tabsBox,el("div",{class:"dr-ctl"},q,gsel,can("export")?exp:null),bulk,sum,body);
   S.drillRedraw=key=>{const y=body.scrollTop;const it=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);const go=()=>{draw();body.scrollTop=y;const again=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);if(again){again.classList.add("flash");const dt=again.querySelector(".ih");if(dt&&dt.nextSibling)dt.nextSibling.hidden=false}};
     const leaving=it&&((st.view==="todo"&&FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state))||(st.view==="done"&&!FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state)));
     if(leaving){it.classList.add("leaving");setTimeout(go,450)}else go()};
   host.append(el("div",{class:"scrim",onclick:closeDrawer}),panel);draw();setTimeout(()=>q.focus(),50);
 }
 const kvs=pairs=>el("div",{class:"kv"},pairs.filter(p=>p).map(([k,v])=>el("div",{},el("span",{text:k}),el("em",{},v==null||v===""?"—":v))));
-const licPill=d=>el("span",{class:"pill "+({valid:"p-ok",expiring:"p-warn",expired:"p-bad",paused:"p-bad",unknown:"p-idle"}[d.lic]),text:d.lic==="expiring"?`${d.daysLeft} d left`:LIC[d.lic]});
-const simPill=s=>s?el("span",{class:"pill "+(s.active?"p-ok":"p-bad"),text:pretty(s.status)}):el("span",{class:"pill p-idle",text:"No SIM match"});
+const licPill=d=>d.pendingLic?el("span",{class:"pill p-ok",title:"You marked the licence paused on "+shortD(d.pendingLic)+". The next Inrico data pull confirms it.",text:"✓ Paused · pending"}):el("span",{class:"pill "+({valid:"p-ok",expiring:"p-warn",expired:"p-bad",paused:"p-bad",unknown:"p-idle"}[d.lic]),text:d.lic==="expiring"?`${d.daysLeft} d left`:LIC[d.lic]});
+const simPill=s=>s&&s.pending?el("span",{class:"pill p-ok",title:"You marked this SIM deactivated on "+shortD(s.pending)+". The next carrier data pull confirms it.",text:"✓ Deactivated · pending"}):s?el("span",{class:"pill "+(s.active?"p-ok":"p-bad"),text:pretty(s.status)}):el("span",{class:"pill p-idle",text:"No SIM match"});
 const mcPill=d=>el("span",{class:"pill "+(d.mc==="match"||d.mc==="other"?"p-ok":d.mc==="name"?"p-acc":"p-warn"),text:MC[d.mc].l});
 function actBox(key,suggest,kind,x){
   const a=S.actions[key]||{};const box=el("div",{class:"act"});const w=x?workState(kind,x):null;const wn=w?workNote(w):"";
@@ -1002,7 +1016,7 @@ function actBox(key,suggest,kind,x){
   box.append(sel,note,save);if(a.at)box.append(el("span",{class:"muted",text:"updated "+new Date(a.at).toLocaleDateString("en-CA")}));
   const qb=(st,l,cls)=>el("button",{class:"btn sm qbtn "+(cls||""),onclick:()=>setAction(key,{status:st,note:note.value.slice(0,500)})},l);
   const closed=CLOSED.has(a.status);
-  wrap.append(el("div",{class:"act quick"},el("span",{class:"muted",text:"One click:"}),kind==="device"?[qb("sim_off","✓ SIM deactivated","ok"),qb("lic_paused","✓ Licence paused","ok"),qb("done","✓ Done","ok")]:[qb("sim_off","✓ SIM deactivated","ok"),qb("done","✓ Done","ok")],qb("requested","Asked carrier"),closed?qb("open","↺ Reopen"):qb("ignored","Ignore")));
+  wrap.append(el("div",{class:"act quick"},el("span",{class:"muted",text:"One click:"}),kind==="device"?[qb("sim_off","✓ SIM deactivated","ok"),qb("lic_paused","✓ Licence paused","ok"),qb("both_off","✓ Both","ok"),qb("done","✓ Done","ok")]:[qb("sim_off","✓ SIM deactivated","ok"),qb("done","✓ Done","ok")],qb("requested","Asked carrier"),closed?qb("open","↺ Reopen"):qb("ignored","Ignore")));
   return wrap}
 function devItem(d){
   const s=d.simRec;const sug=d.pair==="waste"?"Turn this SIM off at "+PROV[s.prov]:d.pair==="nosig"?"Activate SIM or check carrier":d.lic==="expiring"?"Renew licence before "+fmtDate(d.eff):"";
