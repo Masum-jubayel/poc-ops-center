@@ -708,6 +708,7 @@ function buildModel(){
   const custOk=(co,cust)=>{const k=normCo(cust);if(!k)return false;if(k===co.key)return true;const a=k.replace(/s$/,""),b=co.key.replace(/s$/,"");if(a===b)return true;if(Math.min(a.length,b.length)>=4&&(a.includes(b)||b.includes(a)))return true;return (AL[co.id]||[]).includes(k)};
   const alerts=[];
   const add=(sev,type,co,title,detail,ref)=>{if(OFFA.has(type))return;const a={sev,type,co,title,detail,ref};alerts.push(a);if(co)co.issues.push(a);if(ref&&ref.issues)ref.issues.push(a)};
+  for(const [,u] of simUse)if(u.length>1){u.sort((a,b)=>(b.last?+b.last:0)-(a.last?+a.last:0)||(b.eff?+b.eff:0)-(a.eff?+a.eff:0));u.forEach((d,i)=>{d.dupRank=i+1;d.dupLatest=u[0]})}
   for(const d of devices){const co=d.co;
     if(!d.simRaw)d.simState="none";else if(!validSim(d.sim))d.simState="invalid";
     else{const s=findSim(d.sim);if(s){d.simRec=s;s.devices.push(d);d.simState=s.active?"active":"inactive"}else d.simState="notfound"}
@@ -721,6 +722,7 @@ function buildModel(){
     // device × SIM pair
     if(!d.simRec||d.lic==="unknown")d.pair="na";
     else{const sa=d.simState==="active";d.pair=d.active?(sa?"both":"nosig"):(sa?"waste":"off")}
+    if(d.dupRank>1&&d.pair==="waste"){d.pair="off";d.sharedOld=true}
     d.cost=d.pair==="waste"?(+((ST.simCost||{})[d.simRec.prov])||0):0;
     if(d.lic==="expiring")add("high","licence-soon",co,`Licence ends in ${d.daysLeft} day${d.daysLeft===1?"":"s"}`,`${d.name} · ${fmtDate(d.eff)}`,d);
     else if(d.lic==="expired")add("med","licence-expired",co,"Licence expired",`${d.name}${d.eff?" · "+fmtDate(d.eff):""}`,d);
@@ -732,7 +734,7 @@ function buildModel(){
     if(d.simRec&&d.simRec.prov==="jasper"&&!custOk(co,d.simRec.customer))add("med","wrong-customer",co,"SIM under another Jasper customer",`${d.name} · Jasper "${d.simRec.customer||"none"}"`,d);
     if(d.simRec&&d.simRec.prov==="jasper"&&normName(d.simRec.name)!==normName(d.name))add("low","name-diff",co,"Name differs Inrico vs Jasper",`Inrico "${d.name}" · Jasper "${d.simRec.name||"blank"}"`,d);
     if(d.simState==="active"&&d.active&&d.offlineDays!=null&&d.offlineDays>OFF)add("low","offline",co,`Offline ${OFF}+ days with active SIM`,`${d.name} · last online ${fmtDate(d.last)}`,d);
-    if(d.dup)d.dupWith=u.filter(x=>x!==d);if(d.dup)add("high","dup-sim",co,"Same SIM on more than one device",`${d.name} · also on ${u.filter(x=>x!==d).map(x=>x.name+" ("+x.co.name+")").join(", ")}`,d);
+    if(d.dup)d.dupWith=u.filter(x=>x!==d);if(d.dup)add("high","dup-sim",co,"Same SIM on more than one device",`${d.name} · also on ${u.filter(x=>x!==d).map(x=>x.name+" ("+x.co.name+")").join(", ")} · latest online: ${u[0].name}${d.dupRank===1?" (this one — keep)":""}`,d);
   }
   for(const s of simList){if(s.devices.length){s.company=s.devices[0].co;continue}
     const co=s.customer?coByKey.get(normCo(s.customer)):null;s.company=co||null;
@@ -866,8 +868,8 @@ async function exportCSV(name,headers,rows){
   if(!S.dl){toast("Downloads are not available in this view.");return}
   try{await S.dl.save({filename:fn,data:csv})}catch(e){if(e&&e.code!=="declined")toast("Export failed: "+(e.code||e.message))}
 }
-const DEV_COLS=["Company","Agent","Device ID","Device name","IMEI","Online","Last online","Licence","Licence end","Days left","SIM (Inrico)","Carrier","SIM status","Carrier name","Carrier customer","MSISDN","Plan","Match result","Device × SIM","Monthly cost if idle","Action","Note","Issues"];
-const devRow=d=>{const s=d.simRec||{};const a=S.actions[devKey(d)]||{};return [d.co.name,d.co.agent,d.id,d.name,d.imei,d.online?"Online":"Offline",d.last?d.last.toISOString().slice(0,10):"",LIC[d.lic],d.eff?d.eff.toISOString().slice(0,10):"",d.daysLeft??"",d.simRaw,PROV[s.prov]||"",s.status?pretty(s.status):"",s.name||"",s.customer||"",s.msisdn||"",s.plan||"",MC[d.mc].l,PAIR[d.pair],d.cost||"",ACT[a.status]||"",a.note||"",d.issues.map(i=>i.title).join("; ")]};
+const DEV_COLS=["Company","Agent","Device ID","Device name","IMEI","Online","Last online","Licence","Licence end","Days left","SIM (Inrico)","Carrier","SIM status","Carrier name","Carrier customer","MSISDN","Plan","Match result","Device × SIM","Monthly cost if idle","Action","Note","Issues","Shared SIM"];
+const devRow=d=>{const s=d.simRec||{};const a=S.actions[devKey(d)]||{};return [d.co.name,d.co.agent,d.id,d.name,d.imei,d.online?"Online":"Offline",d.last?d.last.toISOString().slice(0,10):"",LIC[d.lic],d.eff?d.eff.toISOString().slice(0,10):"",d.daysLeft??"",d.simRaw,PROV[s.prov]||"",s.status?pretty(s.status):"",s.name||"",s.customer||"",s.msisdn||"",s.plan||"",MC[d.mc].l,PAIR[d.pair],d.cost||"",ACT[a.status]||"",a.note||"",d.issues.map(i=>i.title).join("; "),d.dupRank?(d.dupRank===1?"Latest online (keep)":"Older #"+d.dupRank):""]};
 const SIM_COLS=["Carrier","ICCID","Status","Active","Carrier name","Customer","MSISDN","Plan","Company","Devices in Inrico","Action","Note"];
 const simRow=s=>{const a=S.actions[simKey(s)]||{};return [PROV[s.prov],s.iccid,pretty(s.status),s.active?"Yes":"No",s.name||"",s.customer||"",s.msisdn||"",s.plan||"",s.company?s.company.name:"",s.devices.map(d=>d.name).join("; "),ACT[a.status]||"",a.note||""]};
 
@@ -956,7 +958,7 @@ const shortD=d=>d?new Date(d).toLocaleDateString("en-CA",{month:"short",day:"num
 function workNote(w){if(w.state==="waiting")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)}. Waiting for the next weekly data pull to confirm it.`;if(w.state==="confirmed")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)} and confirmed by the ${shortD(w.dataAt)} data.`;if(w.state==="recheck")return `Marked “${ACT[w.st]}” on ${shortD(w.a.at)}, but the ${shortD(w.dataAt)} data still shows the problem. Check it again.`;return ""}
 function workPill(kind,x){const w=workState(kind,x);const m={requested:["p-acc","Requested"],ignored:["p-idle","Ignored"],waiting:w.st==="done"?["p-ok","✓ Done · "+shortD(w.a.at)]:null,confirmed:["p-ok","✓ Confirmed"],recheck:["p-warn","↻ Re-check"]}[w.state];return m?el("span",{class:"pill "+m[0],title:workNote(w)||m[1],text:m[1]}):null}
 function applyLocal(key,st){const T=S.drillItems;if(!T)return;const x=T.items.find(y=>keyOf(T.kind,y)===key);if(!x)return;const now=new Date().toISOString();
-  const recalc=d=>{if(d.simRec&&d.lic!=="unknown"){const sa=d.simState==="active";d.pair=d.active?(sa?"both":"nosig"):(sa?"waste":"off")}d.cost=d.pair==="waste"?d.cost:0;d.issues=d.issues.filter(i=>!(i.type==="waste"&&d.pair!=="waste")&&!(i.type==="licence-expired"&&d.pendingLic))};
+  const recalc=d=>{if(d.simRec&&d.lic!=="unknown"){const sa=d.simState==="active";d.pair=d.active?(sa?"both":"nosig"):(sa?"waste":"off");if(d.dupRank>1&&d.pair==="waste")d.pair="off"}d.cost=d.pair==="waste"?d.cost:0;d.issues=d.issues.filter(i=>!(i.type==="waste"&&d.pair!=="waste")&&!(i.type==="licence-expired"&&d.pendingLic))};
   const simOff=o=>{if(!o||!o.active)return;o._o=o._o||{status:o.status,active:o.active};o.status=offStatus(o.prov);o.active=false;o.pending=now;for(const d of o.devices){d._s=d._s||d.simState;d.simState="inactive";recalc(d)}};
   if(T.kind==="device"){if(SIMOFF.has(st))simOff(x.simRec);if(LICOFF.has(st)&&x.lic!=="paused"){x._l=x._l||{lic:x.lic,active:x.active};x.lic="paused";x.active=false;x.pendingLic=now;recalc(x)}}
   else if(SIMOFF.has(st))simOff(x)}
@@ -978,7 +980,7 @@ function drill(cfg){
     const items=st.view==="done"?fin:st.view==="all"?all:todo;st.shown=items;
     const vb=(k,l,n)=>el("button",{class:st.view===k?"on":"",onclick:()=>{st.view=k;st.openG=null;draw();body.scrollTop=0}},l+" ",el("b",{class:"mono",text:fmt(n)}));
     prog.replaceChildren(el("div",{class:"dp-top"},el("div",{class:"dp-txt"},el("b",{class:"mono",text:fmt(fin.length)}),` of ${fmt(all.length)} handled · `,el("b",{class:"mono",text:fmt(todo.length)})," to do",rc?el("span",{class:"pill p-warn",style:"margin-left:8px",text:`${rc} need re-check`}):null),
-      el("div",{class:"seg"},vb("todo","To do",todo.length),vb("done","Finished",fin.length),vb("all","All",all.length))),
+      null),
       el("div",{class:"prog dp-bar"},el("i",{style:`width:${pct(fin.length,all.length)}%`})),
       el("div",{class:"dp-chips",hidden:!fin.length||null},...Object.entries(byS).map(([s,n])=>el("span",{class:"chip"},"✓ "+ACT[s]+" ",el("b",{class:"mono",text:fmt(n)}))),wt?el("span",{class:"hint",text:`${wt} waiting for the weekly data pull`}):null,cf?el("span",{class:"hint",text:`· ${cf} confirmed by new data`}):null));
     const groups=new Map();for(const x of items){const k=groupKey(T.kind,st.group,x);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x)}
@@ -995,7 +997,7 @@ function drill(cfg){
   const bulk=can("bulk")?el("div",{class:"dr-ctl bulk"},el("span",{class:"hint",text:"Set the action for every record shown:"}),bsel,el("button",{class:"btn sm pri",onclick:async()=>{const T=cfg.tabs[st.tab];const items=st.shown;if(!items.length||!confirm(`Set ${fmt(items.length)} records to “${ACT[bsel.value]}”?`))return;await bulkAction(items.map(x=>T.kind==="device"?devKey(x):simKey(x)),bsel.value);draw();renderFresh()}},"Apply to all")):null;
   const panel=el("div",{class:"drawer",role:"dialog","aria-modal":"true","aria-label":cfg.title},
     el("div",{class:"dr-h"},el("div",{style:"flex:1;min-width:0"},el("h2",{text:cfg.title}),cfg.sub?el("p",{text:cfg.sub}):null),el("button",{class:"ibtn",onclick:closeDrawer,"aria-label":"Close"},icon("x"))),
-    tabsBox,el("div",{class:"dr-ctl"},q,gsel,can("export")?exp:null),bulk,sum,body);
+    tabsBox,el("div",{class:"dr-ctl"},q,gsel,can("export")?exp:null),bulk,prog,sum,body);
   S.drillRedraw=key=>{const y=body.scrollTop;const it=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);const go=()=>{draw();body.scrollTop=y;const again=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);if(again){again.classList.add("flash");const dt=again.querySelector(".ih");if(dt&&dt.nextSibling)dt.nextSibling.hidden=false}};
     const leaving=it&&((st.view==="todo"&&FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state))||(st.view!=="todo"&&false&&!FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state)));
     if(leaving){it.classList.add("leaving");setTimeout(go,450)}else go()};
@@ -1018,28 +1020,30 @@ function actBox(key,suggest,kind,x){
   const closed=CLOSED.has(a.status);
   wrap.append(el("div",{class:"act quick"},el("span",{class:"muted",text:"One click:"}),kind==="device"?[qb("sim_off","✓ SIM deactivated","ok"),qb("lic_paused","✓ Licence paused","ok"),qb("both_off","✓ Both","ok"),qb("done","✓ Done","ok")]:[qb("sim_off","✓ SIM deactivated","ok"),qb("done","✓ Done","ok")],qb("requested","Asked carrier"),closed?qb("open","↺ Reopen"):qb("ignored","Ignore")));
   return wrap}
-const dupGroup=d=>d.dupWith&&d.dupWith.length?[d,...d.dupWith].sort((a,b)=>(b.last?+b.last:0)-(a.last?+a.last:0)||(b.eff?+b.eff:0)-(a.eff?+a.eff:0)):null;
+const dupGroup=d=>d.dupWith&&d.dupWith.length?[d,...d.dupWith].sort((a,b)=>(a.dupRank||9)-(b.dupRank||9)):null;
+const dupPill=d=>!d.dupRank?null:d.dupRank===1?el("span",{class:"pill p-ok",title:"Most recently online of the devices sharing this SIM — keep this one",text:"★ Latest online"}):el("span",{class:"pill p-idle",title:"Older device on a shared SIM — "+(d.dupLatest?d.dupLatest.name+" was online more recently":""),text:"Older · shared SIM"});
+const devName=d=>d.dupRank?el("span",{},d.name+" ",dupPill(d)):d.name;
 function dupCompare(d){const g=dupGroup(d);const ago=x=>x.offlineDays!=null?` (${x.offlineDays} d ago)`:"";const left=x=>x.daysLeft!=null?` (${x.daysLeft} d)`:"";
   return el("div",{class:"tbl-wrap dupcmp",style:"max-height:none"},el("table",{},el("thead",{},el("tr",{},["","Device","Company","Last online","Licence end","Licence","SIM status"].map(h=>el("th",{text:h})))),
     el("tbody",{},g.map((x,i)=>el("tr",{class:i===0?"latest":""},el("td",{},i===0?el("span",{class:"pill p-ok",text:"★ Latest"}):el("span",{class:"hint",text:"#"+(i+1)})),el("td",{},el("b",{text:x.name}),el("div",{class:"hint mono",text:x.id})),el("td",{text:x.co.name}),
       el("td",{class:i===0?"hl":"",text:fmtDate(x.last)+ago(x)}),el("td",{class:i===0?"hl":"",text:fmtDate(x.eff)+left(x)}),el("td",{},licPill(x)),el("td",{text:x.simRec?pretty(x.simRec.status):"—"}))))),
     el("p",{class:"hint",style:"margin:6px 2px 0",text:`${g[0].name} (${g[0].co.name}) was online most recently, so it is most likely the device using this SIM. Check the other device${g.length>2?"s":""} before turning the SIM off.`}))}
 function devItem(d,depth=0){
-  const g=dupGroup(d),isLatest=!!g&&g[0]===d;
+  const g=dupGroup(d),isLatest=d.dupRank===1;
   const s=d.simRec;const sug=d.pair==="waste"?"Turn this SIM off at "+PROV[s.prov]:d.pair==="nosig"?"Activate SIM or check carrier":d.lic==="expiring"?"Renew licence before "+fmtDate(d.eff):"";
   const det=el("div",{hidden:true},
     kvs([["Company",d.co.name],["Agent",d.co.agent],["Device ID",d.id],["IMEI",d.imei],["Online",d.online?"Online now":"Offline"],["Last online",fmtDate(d.last)+(d.offlineDays!=null?` (${d.offlineDays} d ago)`:"")],["Licence",LIC[d.lic]],["Licence end",fmtDate(d.eff)+(d.daysLeft!=null?` (${d.daysLeft} d)`:"")],["Package",d.pkg],["Firmware",d.version],["Groups",d.groups],["Remark",d.remark],
-      ["SIM in Inrico",d.simRaw],["Carrier",s?PROV[s.prov]:"—"],["SIM status",s?pretty(s.status):"—"],["Carrier name",s&&s.name],["Carrier customer",s&&s.customer],["MSISDN",s&&s.msisdn],["Plan",s&&s.plan],["Data this month (MB)",s&&s.usage],["In session",s&&s.session],["Match result",MC[d.mc].l],["Device × SIM",PAIR[d.pair]],["Idle SIM cost / month",d.cost?money(d.cost):"—"]],isLatest?new Set(["Last online","Licence end"]):null),
+      ["SIM in Inrico",d.simRaw],["Carrier",s?PROV[s.prov]:"—"],["SIM status",s?pretty(s.status):"—"],["Carrier name",s&&s.name],["Carrier customer",s&&s.customer],["MSISDN",s&&s.msisdn],["Plan",s&&s.plan],["Data this month (MB)",s&&s.usage],["In session",s&&s.session],["Match result",MC[d.mc].l],["Device × SIM",d.sharedOld&&d.dupLatest?`Device off · SIM in use on ${d.dupLatest.name} (latest)`:PAIR[d.pair]],["Idle SIM cost / month",d.cost?money(d.cost):"—"]],isLatest?new Set(["Last online","Licence end"]):null),
     d.issues.length?el("ul",{class:"issues"},d.issues.map(i=>el("li",{class:i.sev,text:i.title+(i.detail?" — "+i.detail:"")}))):null,
     d.mc==="customer"&&S.role==="admin"?el("div",{class:"act"},el("span",{class:"muted",text:`Jasper customer “${s.customer||"none"}” is really ${d.co.name}?`}),el("button",{class:"btn sm",onclick:()=>{const al=Object.assign({},settings().aliases||{});const k=normCo(s.customer);if(!k)return;al[d.co.id]=[...new Set([...(al[d.co.id]||[]),k])];saveSettings({aliases:al})}},"Yes, same customer")):null,
     d.dupWith&&d.dupWith.length?el("div",{class:"dupbox"},el("b",{text:depth?`Same SIM also on (${d.dupWith.length})`:`Same SIM ${d.sim} is also on ${d.dupWith.length} other device${d.dupWith.length>1?"s":""} — click to open`}),depth?null:dupCompare(d),
       ...d.dupWith.map(o=>depth?el("div",{class:"hint",text:`${o.name} · ${o.id} · ${o.co.name}`}):devItem(o,1))):null,
     actBox(devKey(d),sug,"device",d),
     el("div",{style:"margin-top:8px"},el("a",{href:"#co-"+d.co.id,onclick:closeDrawer,text:"Open "+d.co.name+" →"})));
-  return el("div",{class:"item"},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("span",{class:"dot "+(d.online?"ok":"")}),el("b",{text:d.name||"(no name)"}),el("span",{class:"mono",text:d.id+" · "+d.co.name}),el("span",{class:"sp"},isLatest?el("span",{class:"pill p-ok",title:"Most recently online of the devices sharing this SIM",text:"★ Latest online"}):null,workPill("device",d),licPill(d),simPill(s),mcPill(d))),det)}
+  return el("div",{class:"item"+(d.dupRank>1?" older":"")},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("span",{class:"dot "+(d.online?"ok":"")}),el("b",{text:d.name||"(no name)"}),el("span",{class:"mono",text:d.id+" · "+d.co.name}),el("span",{class:"sp"},dupPill(d),workPill("device",d),licPill(d),simPill(s),mcPill(d))),det)}
 function simItem(s){
   const sug=s.active&&!s.devices.length?"Check if this SIM is still needed":s.devices.some(d=>d.pair==="waste")?"Turn this SIM off":"";
-  const det=el("div",{hidden:true},kvs([["Carrier",PROV[s.prov]],["ICCID",s.iccid],["Status",pretty(s.status)],["Carrier name",s.name],["Customer",s.customer],["MSISDN",s.msisdn],["Plan",s.plan],["Activated",s.activated],["Data this month (MB)",s.usage],["In session",s.session],["Company",s.company&&s.company.name],["Inrico devices",s.devices.map(d=>d.name+" ("+d.co.name+")").join(", ")||"None"]]),actBox(simKey(s),sug,"sim",s));
+  const det=el("div",{hidden:true},kvs([["Carrier",PROV[s.prov]],["ICCID",s.iccid],["Status",pretty(s.status)],["Carrier name",s.name],["Customer",s.customer],["MSISDN",s.msisdn],["Plan",s.plan],["Activated",s.activated],["Data this month (MB)",s.usage],["In session",s.session],["Company",s.company&&s.company.name],["Inrico devices",s.devices.map(d=>d.name+" ("+d.co.name+")"+(d.dupRank===1&&s.devices.length>1?" ★ latest online":"")).join(", ")||"None"]]),actBox(simKey(s),sug,"sim",s));
   return el("div",{class:"item"},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("b",{class:"mono",text:s.iccid}),el("span",{class:"mono",text:PROV[s.prov]+(s.name?" · "+s.name:"")}),el("span",{class:"sp"},workPill("sim",s),simPill(s),s.devices.length?el("span",{class:"pill p-acc",text:"In Inrico"}):el("span",{class:"pill p-warn",text:"No device"}))),det)}
 
 /* drill shortcuts */
@@ -1275,7 +1279,7 @@ VIEWS.company=(v,r)=>{
   v.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"Health web — company vs whole fleet"}),radar([{name:co.name,c:"--acc2",values:healthVec(ds)},{name:"Fleet average",c:"--acc",values:healthVec(m.devices)}],AXES)),el("div",{class:"card"},el("h3",{text:"Device flow"}),deviceFlow(ds))));
   v.append(el("h3",{style:"margin-top:20px",text:"Inrico vs carrier, device by device — red = difference"}));
   const nm=d=>d.simRec&&normName(d.simRec.name)!==normName(d.name),cu=d=>d.simRec&&d.simRec.prov==="jasper"&&!m.custOk(co,d.simRec.customer);
-  v.append(table([{l:"Device",v:d=>d.name},{l:"Licence",v:d=>d.daysLeft??-9999,f:licPill},{l:"Online",v:d=>d.online?1:0,f:d=>d.online?"Online":"Offline"},{l:"SIM (Inrico)",v:d=>d.sim,f:d=>el("span",{class:"mono"+(d.mc==="notfound"||d.mc==="invalid"||d.mc==="none"||d.mc==="dup"?" diff":""),text:d.simRaw||"none"})},{l:"Carrier",v:d=>d.simRec?d.simRec.prov:"",f:d=>d.simRec?PROV[d.simRec.prov]:"—"},{l:"Carrier name",v:d=>d.simRec?d.simRec.name:"",f:d=>el("span",{class:nm(d)?"diff":"",text:d.simRec?(d.simRec.name||"blank"):"—"})},{l:"Customer",v:d=>d.simRec?d.simRec.customer:"",f:d=>el("span",{class:cu(d)?"diff":"",text:d.simRec?(d.simRec.customer||"—"):"—"})},{l:"SIM status",v:d=>d.simState,f:d=>simPill(d.simRec)},{l:"Result",v:d=>d.mc,f:mcPill}],ds,{onRow:DR.one,sort:8,dir:1,limit:500}));
+  v.append(table([{l:"Device",v:d=>d.name,f:devName},{l:"Licence",v:d=>d.daysLeft??-9999,f:licPill},{l:"Online",v:d=>d.online?1:0,f:d=>d.online?"Online":"Offline"},{l:"SIM (Inrico)",v:d=>d.sim,f:d=>el("span",{class:"mono"+(d.mc==="notfound"||d.mc==="invalid"||d.mc==="none"||d.mc==="dup"?" diff":""),text:d.simRaw||"none"})},{l:"Carrier",v:d=>d.simRec?d.simRec.prov:"",f:d=>d.simRec?PROV[d.simRec.prov]:"—"},{l:"Carrier name",v:d=>d.simRec?d.simRec.name:"",f:d=>el("span",{class:nm(d)?"diff":"",text:d.simRec?(d.simRec.name||"blank"):"—"})},{l:"Customer",v:d=>d.simRec?d.simRec.customer:"",f:d=>el("span",{class:cu(d)?"diff":"",text:d.simRec?(d.simRec.customer||"—"):"—"})},{l:"SIM status",v:d=>d.simState,f:d=>simPill(d.simRec)},{l:"Result",v:d=>d.mc,f:mcPill}],ds,{onRow:DR.one,sort:8,dir:1,limit:500}));
   if(co.carrierOnly.length){v.append(el("h3",{style:"margin-top:20px",text:"Carrier SIMs for this company not on any Inrico device"}));v.append(table([{l:"ICCID",v:s=>s.iccid,f:s=>el("span",{class:"mono",text:s.iccid})},{l:"Carrier",v:s=>PROV[s.prov]},{l:"Name",v:s=>s.name},{l:"Status",v:s=>s.status,f:simPill},{l:"MSISDN",v:s=>s.msisdn}],co.carrierOnly,{onRow:DR.one,sort:3}))}
 };
 
@@ -1284,7 +1288,7 @@ VIEWS.devices=v=>{
   v.append(secH("Devices",`${fmt(m.devices.length)} Inrico devices. Filter, then export or click a device for everything about it.`));
   const box=el("div");const cnt=el("span",{class:"chip"});
   const fil=()=>{const qq=qNorm(f.q);return m.devices.filter(d=>(f.co==="all"||d.co.id===f.co)&&(f.lic==="all"||d.lic===f.lic)&&(f.on==="all"||(f.on==="on")===d.online)&&(f.mc==="all"||d.mc===f.mc)&&(f.pair==="all"||d.pair===f.pair)&&(f.prov==="all"||(d.simRec&&d.simRec.prov)===f.prov)&&(!qq||qHit(textOf("device",d),qq)))};
-  const fill=()=>{const r=fil();cnt.textContent=fmt(r.length)+" devices";box.replaceChildren(table([{l:"Device",v:d=>d.name},{l:"Company",v:d=>d.co.name},{l:"Online",v:d=>d.online?1:0,f:d=>el("span",{},el("span",{class:"dot "+(d.online?"ok":""),style:"display:inline-block;margin-right:6px"}),d.online?"Online":"Offline")},{l:"Licence",v:d=>d.daysLeft??-9999,f:licPill},{l:"SIM",v:d=>d.sim,f:d=>el("span",{class:"mono",text:d.simRaw||"—"})},{l:"Carrier",v:d=>d.simRec?d.simRec.prov:"",f:d=>d.simRec?PROV[d.simRec.prov]:"—"},{l:"SIM status",v:d=>d.simState,f:d=>simPill(d.simRec)},{l:"Match",v:d=>d.mc,f:mcPill},{l:"Device × SIM",v:d=>d.pair,f:d=>PAIR[d.pair]}],r,{onRow:DR.one,sort:0,dir:1}))};
+  const fill=()=>{const r=fil();cnt.textContent=fmt(r.length)+" devices";box.replaceChildren(table([{l:"Device",v:d=>d.name,f:devName},{l:"Company",v:d=>d.co.name},{l:"Online",v:d=>d.online?1:0,f:d=>el("span",{},el("span",{class:"dot "+(d.online?"ok":""),style:"display:inline-block;margin-right:6px"}),d.online?"Online":"Offline")},{l:"Licence",v:d=>d.daysLeft??-9999,f:licPill},{l:"SIM",v:d=>d.sim,f:d=>el("span",{class:"mono",text:d.simRaw||"—"})},{l:"Carrier",v:d=>d.simRec?d.simRec.prov:"",f:d=>d.simRec?PROV[d.simRec.prov]:"—"},{l:"SIM status",v:d=>d.simState,f:d=>simPill(d.simRec)},{l:"Match",v:d=>d.mc,f:mcPill},{l:"Device × SIM",v:d=>d.pair,f:d=>PAIR[d.pair]}],r,{onRow:DR.one,sort:0,dir:1}))};
   const sel=(k,label,opts)=>el("select",{"aria-label":label,onchange:e=>{f[k]=e.target.value;fill()}},el("option",{value:"all"},label),opts.map(([val,l])=>el("option",{value:val,selected:f[k]===val},l)));
   v.append(el("div",{class:"filters"},el("input",{type:"search",placeholder:"Name, ID, IMEI, SIM, phone…",value:f.q,oninput:e=>{f.q=e.target.value;fill()}}),
     sel("co","All companies",[...m.companies].sort((a,b)=>a.name.localeCompare(b.name)).map(c=>[c.id,c.name])),sel("on","Online + offline",[["on","Online"],["off","Offline"]]),sel("lic","Any licence",Object.entries(LIC)),sel("pair","Any device × SIM",Object.entries(PAIR)),sel("mc","Any match result",MATCH_CATS.map(x=>[x[0],x[1]])),sel("prov","Any carrier",Object.entries(PROV)),cnt,
@@ -2824,7 +2828,9 @@ const closeDrawer0=closeDrawer;closeDrawer=function(){closeDrawer0();if(rbPend){
 document.head.append(el("style",{text:".dr-sum .fin-tg{border-color:var(--ok);color:var(--ok)}.dr-sum .fin-tg b{color:var(--ok)}"}));
 
 /* ---- same-SIM comparison: mark the latest device ---- */
-document.head.append(el("style",{text:".kv .kvhl{outline:2px solid var(--ok);outline-offset:2px;border-radius:8px;background:var(--ok-soft)}.kv .kvhl em{color:var(--ok);font-weight:700}.dupcmp{margin:8px 0 10px}.dupcmp tr.latest td{background:var(--ok-soft)}.dupcmp td.hl{color:var(--ok);font-weight:700}"}));
+document.head.append(el("style",{text:".kv .kvhl em{color:var(--ok);font-weight:700}.kv .kvhl span{color:var(--ok)}.dupcmp{margin:8px 0 10px}.dupcmp tr.latest td{background:var(--ok-soft)}.dupcmp td.hl{color:var(--ok);font-weight:700}"}));
+
+document.head.append(el("style",{text:".item.older{opacity:.72}.item.older:hover{opacity:1}"}));
 
 /* ================= boot ================= */
 render();
