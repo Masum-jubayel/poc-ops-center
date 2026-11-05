@@ -960,10 +960,10 @@ function applyLocal(key,st){const T=S.drillItems;if(!T)return;const x=T.items.fi
   const simOff=o=>{if(!o||!o.active)return;o._o=o._o||{status:o.status,active:o.active};o.status=offStatus(o.prov);o.active=false;o.pending=now;for(const d of o.devices){d._s=d._s||d.simState;d.simState="inactive";recalc(d)}};
   if(T.kind==="device"){if(SIMOFF.has(st))simOff(x.simRec);if(LICOFF.has(st)&&x.lic!=="paused"){x._l=x._l||{lic:x.lic,active:x.active};x.lic="paused";x.active=false;x.pendingLic=now;recalc(x)}}
   else if(SIMOFF.has(st))simOff(x)}
-document.addEventListener("poc-act",e=>{const a=S.actions[e.detail]||{};applyLocal(e.detail,a.status);if(S.drillRedraw)S.drillRedraw(e.detail);rebuild()});
+document.addEventListener("poc-act",e=>{const a=S.actions[e.detail]||{};applyLocal(e.detail,a.status);if(S.drillRedraw)S.drillRedraw(e.detail);renderFresh();rebuild()});
 function drill(cfg){
   const host=$("#drawerHost");host.textContent="";document.body.style.overflow="hidden";
-  const st={tab:0,q:"",group:null,open:null,view:"all",openG:null,shown:[]};const prog=el("div",{class:"dr-prog"});
+  const st={tab:0,q:"",group:null,open:null,view:"todo",openG:null,shown:[]};const prog=el("div",{class:"dr-prog"});
   const tabsBox=el("div",{class:"dr-tabs"}),sum=el("div",{class:"dr-sum"}),body=el("div",{class:"dr-body"});
   const q=el("input",{class:"inp",type:"search",placeholder:"Filter by name, ID, IMEI, SIM, company…","aria-label":"Filter"});
   const gsel=el("select",{class:"inp","aria-label":"Group by"});
@@ -983,7 +983,7 @@ function drill(cfg){
       el("div",{class:"dp-chips",hidden:!fin.length||null},...Object.entries(byS).map(([s,n])=>el("span",{class:"chip"},"✓ "+ACT[s]+" ",el("b",{class:"mono",text:fmt(n)}))),wt?el("span",{class:"hint",text:`${wt} waiting for the weekly data pull`}):null,cf?el("span",{class:"hint",text:`· ${cf} confirmed by new data`}):null));
     const groups=new Map();for(const x of items){const k=groupKey(T.kind,st.group,x);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x)}
     const gl=[...groups].sort((a,b)=>b[1].length-a[1].length);
-    sum.replaceChildren(el("span",{class:"chip"},"Showing ",el("b",{class:"mono",text:fmt(items.length)})),...gl.slice(0,12).map(([k,v])=>el("button",{onclick:()=>{const d=body.querySelector(`[data-g="${CSS.escape(k)}"]`);if(d){d.open=true;d.scrollIntoView({behavior:RM?"auto":"smooth",block:"start"})}}},k,el("b",{text:fmt(v.length)}))));
+    sum.replaceChildren(el("span",{class:"chip"},"Showing ",el("b",{class:"mono",text:fmt(items.length)})),...(fin.length?[el("button",{class:"fin-tg",title:"Records you marked SIM deactivated, Licence paused, Both, Done or Ignored",onclick:()=>{st.view=st.view==="todo"?"all":"todo";st.openG=null;draw()}},st.view==="todo"?"✓ Finished · show":"✓ Finished · hide",el("b",{text:fmt(fin.length)}))]:[]),...gl.slice(0,12).map(([k,v])=>el("button",{onclick:()=>{const d=body.querySelector(`[data-g="${CSS.escape(k)}"]`);if(d){d.open=true;d.scrollIntoView({behavior:RM?"auto":"smooth",block:"start"})}}},k,el("b",{text:fmt(v.length)}))));
     body.textContent="";if(!items.length){body.append(el("div",{class:"empty"},el("h3",{text:st.view==="todo"&&all.length&&!qq?"All done":"Nothing here"}),el("p",{text:qq?"No record matches the filter.":st.view==="todo"&&all.length?"Every record here is handled. The weekly data pull will confirm the fixes.":st.view==="done"?"Nothing finished yet. Save an action as Done, SIM deactivated or Licence paused and it moves here.":"No records in this group right now."})));return}
     gl.forEach(([k,list],gi)=>{const d=el("details",{class:"grp","data-g":k,open:st.openG?st.openG.has(k):(gi<3||gl.length===1)});let shown=0;const box=el("div");
       const more=el("button",{class:"btn sm",style:"margin-top:8px"});const fill=()=>{const nx=list.slice(shown,shown+50);nx.forEach(x=>{const n=T.kind==="device"?devItem(x):simItem(x);n.dataset.k=keyOf(T.kind,x);box.append(n)});shown+=nx.length;more.hidden=shown>=list.length;more.textContent=`Show ${Math.min(50,list.length-shown)} more of ${fmt(list.length-shown)}`};
@@ -997,7 +997,7 @@ function drill(cfg){
     el("div",{class:"dr-h"},el("div",{style:"flex:1;min-width:0"},el("h2",{text:cfg.title}),cfg.sub?el("p",{text:cfg.sub}):null),el("button",{class:"ibtn",onclick:closeDrawer,"aria-label":"Close"},icon("x"))),
     tabsBox,el("div",{class:"dr-ctl"},q,gsel,can("export")?exp:null),bulk,sum,body);
   S.drillRedraw=key=>{const y=body.scrollTop;const it=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);const go=()=>{draw();body.scrollTop=y;const again=key&&body.querySelector(`[data-k="${CSS.escape(key)}"]`);if(again){again.classList.add("flash");const dt=again.querySelector(".ih");if(dt&&dt.nextSibling)dt.nextSibling.hidden=false}};
-    const leaving=it&&((st.view==="todo"&&FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state))||(st.view==="done"&&!FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state)));
+    const leaving=it&&((st.view==="todo"&&FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state))||(st.view!=="todo"&&false&&!FINISHED.has(workState(cfg.tabs[st.tab].kind,cfg.tabs[st.tab].items.find(x=>keyOf(cfg.tabs[st.tab].kind,x)===key)||{}).state)));
     if(leaving){it.classList.add("leaving");setTimeout(go,450)}else go()};
   host.append(el("div",{class:"scrim",onclick:closeDrawer}),panel);draw();setTimeout(()=>q.focus(),50);
 }
@@ -2809,6 +2809,12 @@ function paintFavicon(){const id=(S.settings||{}).logoCircle||(S.settings||{}).l
     document.querySelectorAll('link[rel~="icon"]').forEach(l=>l.remove());document.head.append(el("link",{rel:"icon",type:"image/png",href:u}));favFor=id}catch(_){}};i.src=src}
 const paintLogo2=paintLogo;paintLogo=function(){paintLogo2();paintFavicon()};
 window.addEventListener("poc-asset",()=>paintFavicon());
+
+/* ---- while a list is open, keep the page still: rebuild once it closes ---- */
+const rebuild0=rebuild;let rbPend=false;
+rebuild=function(){const h=$("#drawerHost");if(h&&h.firstChild){rbPend=true;return}rebuild0()};
+const closeDrawer0=closeDrawer;closeDrawer=function(){closeDrawer0();if(rbPend){rbPend=false;rebuild0()}};
+document.head.append(el("style",{text:".dr-sum .fin-tg{border-color:var(--ok);color:var(--ok)}.dr-sum .fin-tg b{color:var(--ok)}"}));
 
 /* ================= boot ================= */
 render();
