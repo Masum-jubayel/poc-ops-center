@@ -732,7 +732,7 @@ function buildModel(){
     if(d.simRec&&d.simRec.prov==="jasper"&&!custOk(co,d.simRec.customer))add("med","wrong-customer",co,"SIM under another Jasper customer",`${d.name} · Jasper "${d.simRec.customer||"none"}"`,d);
     if(d.simRec&&d.simRec.prov==="jasper"&&normName(d.simRec.name)!==normName(d.name))add("low","name-diff",co,"Name differs Inrico vs Jasper",`Inrico "${d.name}" · Jasper "${d.simRec.name||"blank"}"`,d);
     if(d.simState==="active"&&d.active&&d.offlineDays!=null&&d.offlineDays>OFF)add("low","offline",co,`Offline ${OFF}+ days with active SIM`,`${d.name} · last online ${fmtDate(d.last)}`,d);
-    if(d.dup)add("high","dup-sim",co,"Same SIM on more than one device",`${d.name} · also on ${u.filter(x=>x!==d).map(x=>x.name+" ("+x.co.name+")").join(", ")}`,d);
+    if(d.dup)d.dupWith=u.filter(x=>x!==d);if(d.dup)add("high","dup-sim",co,"Same SIM on more than one device",`${d.name} · also on ${u.filter(x=>x!==d).map(x=>x.name+" ("+x.co.name+")").join(", ")}`,d);
   }
   for(const s of simList){if(s.devices.length){s.company=s.devices[0].co;continue}
     const co=s.customer?coByKey.get(normCo(s.customer)):null;s.company=co||null;
@@ -1018,13 +1018,15 @@ function actBox(key,suggest,kind,x){
   const closed=CLOSED.has(a.status);
   wrap.append(el("div",{class:"act quick"},el("span",{class:"muted",text:"One click:"}),kind==="device"?[qb("sim_off","✓ SIM deactivated","ok"),qb("lic_paused","✓ Licence paused","ok"),qb("both_off","✓ Both","ok"),qb("done","✓ Done","ok")]:[qb("sim_off","✓ SIM deactivated","ok"),qb("done","✓ Done","ok")],qb("requested","Asked carrier"),closed?qb("open","↺ Reopen"):qb("ignored","Ignore")));
   return wrap}
-function devItem(d){
+function devItem(d,depth=0){
   const s=d.simRec;const sug=d.pair==="waste"?"Turn this SIM off at "+PROV[s.prov]:d.pair==="nosig"?"Activate SIM or check carrier":d.lic==="expiring"?"Renew licence before "+fmtDate(d.eff):"";
   const det=el("div",{hidden:true},
     kvs([["Company",d.co.name],["Agent",d.co.agent],["Device ID",d.id],["IMEI",d.imei],["Online",d.online?"Online now":"Offline"],["Last online",fmtDate(d.last)+(d.offlineDays!=null?` (${d.offlineDays} d ago)`:"")],["Licence",LIC[d.lic]],["Licence end",fmtDate(d.eff)+(d.daysLeft!=null?` (${d.daysLeft} d)`:"")],["Package",d.pkg],["Firmware",d.version],["Groups",d.groups],["Remark",d.remark],
       ["SIM in Inrico",d.simRaw],["Carrier",s?PROV[s.prov]:"—"],["SIM status",s?pretty(s.status):"—"],["Carrier name",s&&s.name],["Carrier customer",s&&s.customer],["MSISDN",s&&s.msisdn],["Plan",s&&s.plan],["Data this month (MB)",s&&s.usage],["In session",s&&s.session],["Match result",MC[d.mc].l],["Device × SIM",PAIR[d.pair]],["Idle SIM cost / month",d.cost?money(d.cost):"—"]]),
     d.issues.length?el("ul",{class:"issues"},d.issues.map(i=>el("li",{class:i.sev,text:i.title+(i.detail?" — "+i.detail:"")}))):null,
     d.mc==="customer"&&S.role==="admin"?el("div",{class:"act"},el("span",{class:"muted",text:`Jasper customer “${s.customer||"none"}” is really ${d.co.name}?`}),el("button",{class:"btn sm",onclick:()=>{const al=Object.assign({},settings().aliases||{});const k=normCo(s.customer);if(!k)return;al[d.co.id]=[...new Set([...(al[d.co.id]||[]),k])];saveSettings({aliases:al})}},"Yes, same customer")):null,
+    d.dupWith&&d.dupWith.length?el("div",{class:"dupbox"},el("b",{text:depth?`Same SIM also on (${d.dupWith.length})`:`Same SIM ${d.sim} is also on ${d.dupWith.length} other device${d.dupWith.length>1?"s":""} — click to open`}),
+      ...d.dupWith.map(o=>depth?el("div",{class:"hint",text:`${o.name} · ${o.id} · ${o.co.name}`}):devItem(o,1))):null,
     actBox(devKey(d),sug,"device",d),
     el("div",{style:"margin-top:8px"},el("a",{href:"#co-"+d.co.id,onclick:closeDrawer,text:"Open "+d.co.name+" →"})));
   return el("div",{class:"item"},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("span",{class:"dot "+(d.online?"ok":"")}),el("b",{text:d.name||"(no name)"}),el("span",{class:"mono",text:d.id+" · "+d.co.name}),el("span",{class:"sp"},workPill("device",d),licPill(d),simPill(s),mcPill(d))),det)}
@@ -2796,6 +2798,17 @@ renderFresh=function(){renderFresh3();const m=S.model;const f=$("#fresh");if(!m|
   if(n1)f.append(el("button",{class:"chip workchip ok",title:"Marked fixed since the last data pull. The next weekly pull confirms them.",onclick:()=>drill({title:"Handled — waiting for weekly check",sub:"You marked these fixed. When the next weekly Inrico and carrier data arrives, each one is checked again.",view:"all",tabs:tabs(W.waiting)})},"✓ ",el("b",{class:"mono",text:fmt(n1)})," handled · waiting for weekly check"));
   if(n2)f.append(el("button",{class:"chip workchip warn",title:"Marked fixed, but the newer data still shows the problem.",onclick:()=>drill({title:"Needs re-check",sub:"Marked fixed, but the newest data still shows the problem.",view:"all",tabs:tabs(W.recheck)})},"↻ ",el("b",{class:"mono",text:fmt(n2)})," need re-check"))};
 document.head.append(el("style",{text:".workchip{cursor:pointer;font:600 12px var(--f-lab)}.workchip.ok{border-color:var(--ok);color:var(--ok)}.workchip.warn{border-color:var(--warn);color:var(--warn)}"}));
+
+/* ---- other device on the same SIM: nested card style ---- */
+document.head.append(el("style",{text:".dupbox{margin-top:10px;padding:10px 12px;border:1px dashed var(--s4,var(--acc));border-radius:12px;background:var(--panel2)}.dupbox>b{display:block;font:700 12px var(--f-lab);letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}.dupbox .item{background:var(--panel)}"}));
+/* ---- browser tab icon = circle logo ---- */
+let favFor=null;
+function paintFavicon(){const id=(S.settings||{}).logoCircle||(S.settings||{}).logoAsset;if(!id||favFor===id)return;const src=aurl(id);if(!src||src.startsWith("data:image/gif"))return;
+  const i=new Image();i.onload=()=>{try{const c=document.createElement("canvas");c.width=c.height=64;const x=c.getContext("2d");x.beginPath();x.arc(32,32,31,0,Math.PI*2);x.closePath();x.clip();x.fillStyle="#fff";x.fillRect(0,0,64,64);
+    const s=Math.min(i.naturalWidth,i.naturalHeight);x.drawImage(i,(i.naturalWidth-s)/2,(i.naturalHeight-s)/2,s,s,0,0,64,64);const u=c.toDataURL("image/png");
+    document.querySelectorAll('link[rel~="icon"]').forEach(l=>l.remove());document.head.append(el("link",{rel:"icon",type:"image/png",href:u}));favFor=id}catch(_){}};i.src=src}
+const paintLogo2=paintLogo;paintLogo=function(){paintLogo2();paintFavicon()};
+window.addEventListener("poc-asset",()=>paintFavicon());
 
 /* ================= boot ================= */
 render();
