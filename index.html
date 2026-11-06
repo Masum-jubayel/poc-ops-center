@@ -607,7 +607,8 @@ const RM=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").match
 const DAY=864e5;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const toast=(msg,ms=4200)=>{const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(()=>t.hidden=true,ms)};
-const normSim=s=>String(s||"").trim().replace(/[fF]$/,"").replace(/\s+/g,"");
+const simDigits=s=>{const r=String(s||"").trim();const d=r.replace(/[^0-9]/g,"");return d.length>=15?d:r.replace(/\s+/g,"")};
+const normSim=s=>simDigits(s);
 const qNorm=s=>{const t=String(s||"").trim().toLowerCase();const c=t.replace(/[\s-]/g,"");if(/^\d{6,}[a-z]$/.test(c))return c.slice(0,-1);if(/^\d{6,}$/.test(c))return c;return t};
 const qHit=(text,q)=>!q||text.includes(q)||(/^\d{19,}$/.test(q)&&text.includes(q.slice(0,18)));
 const validSim=s=>/^\d{18,22}$/.test(s);
@@ -620,7 +621,7 @@ const SIM_ACTIVE={jasper:new Set(["Activated"]),hologram:new Set(["LIVE"]),simpl
 const PROV={jasper:"Telus Jasper",hologram:"Hologram",simplex:"Simplex"};
 const pretty=s=>({"PAUSED-USER":"Paused","DEAD":"Dead","DEAD-PENDING":"Dead (pending)","LIVE":"Live","ACTIVATED":"Activated","PAUSE":"Paused","TERMINATED":"Terminated","TEST_READY":"Test ready"}[s]||s||"—");
 const LIC={valid:"Valid",expiring:"Expiring ≤ window",expired:"Expired",paused:"Paused",unknown:"No date"};
-const MATCH_CATS=[["match","Matched (Jasper)","--ok"],["other","Matched (Simplex / Hologram)","--s3"],["name","Name differs","--s5"],["customer","Wrong Jasper customer","--warn"],["dup","Same SIM on 2+ devices","--s4"],["notfound","SIM not in any carrier","--bad"],["invalid","Invalid SIM value","--s2"],["none","No SIM in Inrico","--idle"]];
+const MATCH_CATS=[["match","Matched (Jasper)","--ok"],["other","Matched (Simplex / Hologram)","--s3"],["name","Name differs","--s5"],["customer","Wrong Jasper customer","--warn"],["dup","Same SIM on 2+ devices","--s4"],["notfound","SIM not in our carriers (own SIM?)","--bad"],["invalid","Invalid SIM value","--s2"],["none","No SIM in Inrico","--idle"]];
 const MC=Object.fromEntries(MATCH_CATS.map(([k,l,c])=>[k,{l,c}]));
 const PAIR={both:"Device on · SIM on",waste:"Device off · SIM on (paying)",nosig:"Device on · SIM off",off:"Device off · SIM off",na:"No carrier SIM matched"};
 const ACT={open:"Open",requested:"Requested",sim_off:"SIM deactivated",lic_paused:"Licence paused",both_off:"SIM off + licence paused",done:"Done",ignored:"Ignored"};
@@ -687,7 +688,7 @@ function buildModel(){
   for(const c of src){
     const co={id:String(c.id),name:c.name,agent:agOf(c),collectedAt:c.collectedAt,devices:[],issues:[],key:normCo(c.name)};
     for(const r of (c.devices||[])){
-      const d={kind:"device",co,id:String(r[0]),online:r[1]===1,name:r[2]||"",imei:r[3]||"",pkg:r[4]||"",version:r[5]||"",simRaw:r[6]||"",groups:r[7]||"",eff:parseISO(r[8]),last:parseISO(r[9]),remark:r[10]||"",issues:[]};
+      const d={kind:"device",co,id:String(r[0]),online:r[1]===1,name:r[2]||"",imei:r[3]||"",pkg:r[4]||"",version:r[5]||"",simRaw:simDigits(r[6]||""),groups:r[7]||"",eff:parseISO(r[8]),last:parseISO(r[9]),remark:r[10]||"",issues:[]};
       d.sim=normSim(d.simRaw);const flag=r[11]||"";d.daysLeft=d.eff?daysBetween(d.eff,now):null;
       if(flag==="expired")d.lic="expired";else if(flag==="paused")d.lic="paused";
       else if(d.eff)d.lic=d.daysLeft<0?"expired":d.daysLeft<=EXP?"expiring":"valid";else d.lic="unknown";
@@ -730,7 +731,7 @@ function buildModel(){
     if(d.pair==="nosig")add("high","nosig",co,"Device active, SIM not active",`${d.name} · ${PROV[d.simRec.prov]} SIM ${pretty(d.simRec.status)}`,d);
     if(d.mc==="none")add("med","no-sim",co,"No SIM entered in Inrico",d.name,d);
     if(d.mc==="invalid")add("med","bad-sim",co,"Invalid SIM value in Inrico",`${d.name} · "${d.simRaw}"`,d);
-    if(d.mc==="notfound")add("med","sim-missing",co,"SIM not found in any carrier",`${d.name} · ${d.sim}`,d);
+    if(d.mc==="notfound")add("low","sim-missing",co,"SIM not in our carriers — probably the customer's own SIM (low priority)",`${d.name} · ${d.sim}`,d);
     if(d.simRec&&d.simRec.prov==="jasper"&&!custOk(co,d.simRec.customer))add("med","wrong-customer",co,"SIM under another Jasper customer",`${d.name} · Jasper "${d.simRec.customer||"none"}"`,d);
     if(d.simRec&&d.simRec.prov==="jasper"&&normName(d.simRec.name)!==normName(d.name))add("low","name-diff",co,"Name differs Inrico vs Jasper",`Inrico "${d.name}" · Jasper "${d.simRec.name||"blank"}"`,d);
     if(d.simState==="active"&&d.active&&d.offlineDays!=null&&d.offlineDays>OFF)add("low","offline",co,`Offline ${OFF}+ days with active SIM`,`${d.name} · last online ${fmtDate(d.last)}`,d);
@@ -1046,7 +1047,7 @@ function devItem(d,depth=0){
       ...d.dupWith.map(o=>depth?el("div",{class:"hint",text:`${o.name} · ${o.id} · ${o.co.name}`}):devItem(o,1))):null,
     actBox(devKey(d),sug,"device",d),
     el("div",{style:"margin-top:8px"},el("a",{href:"#co-"+d.co.id,onclick:closeDrawer,text:"Open "+d.co.name+" →"})));
-  return el("div",{class:"item"+(d.dupRank>1?" older":"")},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("span",{class:"dot "+(d.online?"ok":"")}),el("b",{text:d.name||"(no name)"}),el("span",{class:"mono",text:d.id+" · "+d.co.name}),el("span",{class:"sp"},dupPill(d),workPill("device",d),licPill(d),simPill(s),mcPill(d))),det)}
+  return el("div",{class:"item"+(d.dupRank>1||d.mc==="notfound"?" older":"")},el("div",{class:"ih",onclick:()=>det.hidden=!det.hidden,role:"button",tabindex:0},el("span",{class:"dot "+(d.online?"ok":"")}),el("b",{text:d.name||"(no name)"}),el("span",{class:"mono",text:d.id+" · "+d.co.name}),el("span",{class:"sp"},dupPill(d),workPill("device",d),licPill(d),simPill(s),mcPill(d))),det)}
 function simItem(s){
   const sug=s.active&&!s.devices.length?"Check if this SIM is still needed":s.devices.some(d=>d.pair==="waste")?"Turn this SIM off":"";
   const det=el("div",{hidden:true},kvs([["Carrier",PROV[s.prov]],["ICCID",s.iccid],["Status",pretty(s.status)],["Carrier name",s.name],["Customer",s.customer],["MSISDN",s.msisdn],["Plan",s.plan],["Activated",s.activated],["Data this month (MB)",s.usage],["In session",s.session],["Company",s.company&&s.company.name],["Inrico devices",s.devices.map(d=>d.name+" ("+d.co.name+")"+(d.dupRank===1&&s.devices.length>1?" ★ latest online":"")).join(", ")||"None"]]),actBox(simKey(s),sug,"sim",s));
@@ -2684,7 +2685,7 @@ VIEWS.users=v=>{
   const cnt=r=>ids.filter(id=>roles[id].role===r&&!roles[id].disabled&&!isExp(roles[id])).length;const blocked=ids.filter(id=>roles[id].disabled).length;
   const soon=ids.filter(id=>roles[id].until&&!isExp(roles[id])&&(new Date(roles[id].until)-Date.now())/DAY<14).length;
   v.append(secH("Users","Add people, choose what they can do, see who is active, and preview the dashboard through their eyes.",el("button",{class:"btn",onclick:()=>{const D=DATASETS.find(x=>x.id==="users");pickFormat("Users",D.items().length,f=>exportAny("Users",D.cols,D.items().map(D.row),f))}},icon("dl"),"Export users")));
-  v.append(el("div",{class:"kpis"},kpi({label:"People with access",value:ids.length-blocked,ic:"users",cls:"solid"}),kpi({label:"Admins · Managers",value:cnt("admin")+1+cnt("manager"),note:`${cnt("admin")+1} admins (incl. owner) · ${cnt("manager")} managers`,ic:"admin"}),kpi({label:"Viewers · Agents",value:cnt("viewer")+cnt("agent"),note:`${cnt("viewer")} viewers · ${cnt("agent")} agents`,ic:"users"}),kpi({label:"Invites · Blocked",value:Object.keys(inv).length,note:`${Object.keys(inv).length} waiting to sign in · ${blocked} blocked · ${soon} ending ≤ 14 days`,ic:"power",cls:blocked||soon?"orange":""})));
+  v.append(el("div",{class:"kpis"},kpi({label:"People with access",value:ids.length-blocked,note:"click to list everyone",ic:"users",cls:"solid",onClick:()=>showList("")}),kpi({label:"Admins · Managers",value:cnt("admin")+1+cnt("manager"),note:`${cnt("admin")+1} admins (incl. owner) · ${cnt("manager")} managers`,ic:"admin",onClick:()=>showList("am")}),kpi({label:"Viewers · Agents",value:cnt("viewer")+cnt("agent"),note:`${cnt("viewer")} viewers · ${cnt("agent")} agents`,ic:"users",onClick:()=>showList("va")}),kpi({label:"Invites · Blocked",value:Object.keys(inv).length,note:`${Object.keys(inv).length} waiting to sign in · ${blocked} blocked · ${soon} ending ≤ 14 days`,ic:"power",cls:blocked||soon?"orange":"",onClick:()=>{const ic=v.querySelector("[data-invites]");if(ic&&Object.keys(inv).length)ic.scrollIntoView({behavior:"smooth",block:"start"});else showList("blocked")}})));
 
   /* -- add people -- */
   let pick=[];let role="viewer";let until="";let agent=agents[0]||"";
@@ -2707,19 +2708,20 @@ VIEWS.users=v=>{
   const plus=n=>{const d=new Date(Date.now()+n*DAY);return d.toISOString().slice(0,10)};
   const qs=el("div",{class:"quick"},el("span",{class:"hint",text:"Access ends:"}),...[["No end",""],["30 days",30],["90 days",90],["1 year",365]].map(([l,n],i)=>el("button",{class:"chipbtn"+(i===0?" on":""),onclick:e=>{until=n===""?"":plus(n);dIn.value=until;qs.querySelectorAll(".chipbtn").forEach(b=>b.classList.remove("on"));e.currentTarget.classList.add("on")}},l)),dIn);
   const note=el("input",{class:"inp",placeholder:"Note (team, phone, reason) — optional",style:"flex:1;min-width:220px",maxlength:200});
+  const sendCk=el("input",{type:"checkbox",checked:isSite()||null});const sendLbl=isSite()?el("label",{class:"tg",style:"padding:6px 10px"},sendCk,el("span",{class:"knob"}),"Email each person a sign-in link now"):null;
   const out=el("div",{hidden:true});
   const go=el("button",{class:"btn pri",disabled:true,onclick:async()=>{if(!pick.length)return;if(role==="admin"&&!confirm(`Give ADMIN access to ${pick.length} ${pick.length>1?"people":"person"}? Admins can change users, settings and all data.`))return;
     const base={role,agent:role==="agent"?agent:"",disabled:false,until:until||null,note:note.value.trim().slice(0,200),at:new Date().toISOString(),by:S.me.id};const invNew=Object.assign({},S.invites||{});let a=0,n=0;
     for(const p of pick){if(p.id){roles[p.id]=Object.assign({},base,{label:p.name||"",email:p.email||null});a++}else{invNew[p.email]=Object.assign({},base,{byName:S.me.name||""});n++}}
     S.invites=invNew;await saveRoles(roles,true);logAct("access",`Gave ${role} access to ${pick.map(p=>p.name||p.email).join(", ")}`);toast(`Done · ${a} added now${n?` · ${n} invited (access starts at first sign-in)`:""}`);
-    lastInvite={pick:pick.slice(),base};out.replaceChildren(inviteCard(pick,base));out.hidden=false;pick=[];note.value="";drawChips()}},"Give access");
+    if(sendCk.checked&&isSite())for(const p of pick)if(p.email)await sendSignInLink(p.email,p.name,true);lastInvite={pick:pick.slice(),base};out.replaceChildren(inviteCard(pick,base));out.hidden=false;pick=[];note.value="";drawChips()}},"Give access");
   if(lastInvite){out.replaceChildren(inviteCard(lastInvite.pick,lastInvite.base));out.hidden=false}
   drawRoles();drawChips();
   v.append(el("div",{class:"card mt"},el("h3",{text:"Add people"}),
     el("p",{class:"hint",style:"margin-top:0",text:"1 · Who"}),el("div",{class:"addbox",onclick:()=>qi.focus()},chips,qi),res,
     el("p",{class:"hint",text:"2 · What they can do"}),rp,el("div",{class:"filters mt"},agWrap),
     el("p",{class:"hint",text:"3 · For how long"}),qs,
-    el("div",{class:"filters mt"},note,go),out,
+    el("div",{class:"filters mt"},note,sendLbl,go),out,
     el("p",{class:"hint",text:isSite()?"Paste a whole list of emails at once. People who have never signed in get an invite: they have access as soon as they sign in with that email (Google or email link).":"Ask the person to open this page once, then search their name."})));
 
   /* -- signed in but no access -- */
@@ -2730,15 +2732,15 @@ VIEWS.users=v=>{
 
   /* -- pending invites -- */
   const ie=Object.entries(inv);
-  if(ie.length)v.append(el("div",{class:"card mt"},el("h3",{text:`Invites waiting (${ie.length})`}),el("p",{class:"hint",style:"margin-top:0",text:"Access starts automatically when they sign in with this email. Send them the message so they know."}),
-    el("div",{class:"ulist"},ie.map(([em,u])=>el("div",{class:"urow",style:"grid-template-columns:1fr auto auto auto auto"},el("div",{},el("b",{text:em}),el("div",{class:"hint",text:`invited ${u.at?new Date(u.at).toLocaleDateString("en-CA",{dateStyle:"medium"}):""}${u.until?" · until "+u.until:""}${u.note?" · "+u.note:""}`})),el("span",{class:"pill p-acc",text:u.role+(u.agent?" · "+u.agent:"")}),
-      el("button",{class:"btn sm",onclick:()=>{copyText(inviteText({email:em},u))}},icon("copy"),"Copy message"),el("a",{class:"btn sm",href:mailto(em,u)},icon("mail"),"Email"),
+  if(ie.length)v.append(el("div",{class:"card mt","data-invites":"1"},el("h3",{text:`Invites waiting (${ie.length})`}),el("p",{class:"hint",style:"margin-top:0",text:"Access starts automatically when they sign in with this email. Send them the message so they know."}),
+    el("div",{class:"ulist"},ie.map(([em,u])=>el("div",{class:"urow",style:"grid-template-columns:1fr auto auto auto auto auto"},el("div",{},el("b",{text:em}),el("div",{class:"hint",text:`invited ${u.at?new Date(u.at).toLocaleDateString("en-CA",{dateStyle:"medium"}):""}${u.until?" · until "+u.until:""}${u.note?" · "+u.note:""}`})),el("span",{class:"pill p-acc",text:u.role+(u.agent?" · "+u.agent:"")}),
+      el("button",{class:"btn sm pri",onclick:()=>sendSignInLink(em)},icon("mail"),"Send sign-in link"),el("button",{class:"btn sm",onclick:()=>{copyText(inviteText({email:em},u))}},icon("copy"),"Copy message"),el("a",{class:"btn sm",href:mailto(em,u)},icon("mail"),"Email"),
       el("button",{class:"btn sm",onclick:()=>{if(!confirm("Cancel the invite for "+em+"?"))return;const n=Object.assign({},S.invites);delete n[em];S.invites=n;saveRoles(roles,true);logAct("access","Cancelled invite "+em);toast("Invite cancelled")}},"Cancel")))),
     el("div",{class:"filters mt"},el("button",{class:"btn sm",onclick:async()=>{await claimInvites(true);toast("Checked — anyone who signed in now has access")}},"Check sign-ins now"))));
 
   /* -- people list with bulk actions -- */
   const sel=new Set();const list=el("div",{class:"ulist"});const fq=el("input",{class:"inp",type:"search",placeholder:"Filter by name, email, note, agent…",style:"flex:1"});
-  const fr=el("select",{class:"inp"},el("option",{value:""},"Everyone"),ROLE_ORDER.map(r=>el("option",{value:"r:"+r},ROLE_TITLE[r]+"s")),el("option",{value:"blocked"},"Blocked"),el("option",{value:"soon"},"Access ending ≤ 14 days"),el("option",{value:"expired"},"Access expired"),el("option",{value:"idle"},"Not seen for 60+ days"));
+  const fr=el("select",{class:"inp"},el("option",{value:""},"Everyone"),el("option",{value:"am"},"Admins & managers"),el("option",{value:"va"},"Viewers & agents"),ROLE_ORDER.map(r=>el("option",{value:"r:"+r},ROLE_TITLE[r]+"s")),el("option",{value:"blocked"},"Blocked"),el("option",{value:"soon"},"Access ending ≤ 14 days"),el("option",{value:"expired"},"Access expired"),el("option",{value:"idle"},"Not seen for 60+ days"));
   const bulk=el("div",{class:"bulkbar",hidden:true});let pres={},ps={};
   const upd=(id,patch,what)=>{roles[id]=Object.assign({},roles[id],patch);saveRoles(roles,true);toast("Saved");if(what)logAct("access",what)};
   const drawBulk=()=>{bulk.hidden=!sel.size;if(!sel.size)return;const nm=[...sel];const rs=el("select",{class:"inp"},el("option",{value:""},"Change role to…"),ROLE_ORDER.map(r=>el("option",{value:r},ROLE_TITLE[r])));const dd=el("input",{class:"inp",type:"date"});
@@ -2747,22 +2749,38 @@ VIEWS.users=v=>{
       el("span",{class:"hint",text:"End access on"}),dd,el("button",{class:"btn sm",onclick:()=>apply({until:dd.value||null},dd.value?"Access until "+dd.value:"No end date")},"Set"),
       el("button",{class:"btn sm",onclick:()=>apply({disabled:true},"Blocked")},"Block"),el("button",{class:"btn sm",onclick:()=>apply({disabled:false},"Allowed")},"Allow"),
       el("button",{class:"btn sm",onclick:()=>{if(!confirm(`Remove access for ${nm.length} people?`))return;for(const id of nm)delete roles[id];saveRoles(roles,true);logAct("access",`Removed ${nm.length} people`);sel.clear();draw()}},"Remove"),el("button",{class:"btn sm",onclick:()=>{sel.clear();draw()}},"Clear"))};
+  const personCard=id=>{const u=roles[id],p=ps[id]||{},nm=u.label||p.name||u.email||"Person";const seen=pres[id]&&pres[id].at;const exp=isExp(u);const mail=u.email||p.email||"";
+    const ed={label:u.label||"",role:u.role,agent:u.agent||"",until:u.until||null,note:u.note||""};
+    const saveB=el("button",{class:"btn sm pri",disabled:true},"✓ Save changes"),cancelB=el("button",{class:"btn sm",hidden:true,onclick:()=>draw()},"Cancel"),stat=el("span",{class:"hint"});
+    let c;const dirty=()=>{const ch=["label","role","agent","until","note"].some(k=>(ed[k]||"")!==(u[k]||""));saveB.disabled=!ch||null;cancelB.hidden=!ch;stat.textContent=ch?"You have unsaved changes":"";c&&c.classList.toggle("dirty",ch)};
+    const set=(k,val)=>{ed[k]=val;dirty()};
+    const agSel=el("select",{disabled:ed.role!=="agent"||null,onchange:e=>set("agent",e.target.value)},el("option",{value:""},"—"),agents.map(a=>el("option",{value:a,selected:ed.agent===a},a)));
+    const roleSel=el("select",{onchange:e=>{set("role",e.target.value);agSel.disabled=e.target.value!=="agent"||null}},ROLE_ORDER.map(r=>el("option",{value:r,selected:ed.role===r},ROLE_TITLE[r])));
+    const dIn=el("input",{type:"date",value:ed.until||""});const uq=el("div",{class:"quick",style:"margin-top:4px"});
+    const markU=()=>uq.querySelectorAll(".chipbtn").forEach(b=>b.classList.toggle("on",b.dataset.n==="0"?!ed.until:false));
+    dIn.onchange=e=>{set("until",e.target.value||null);markU()};
+    uq.append(...[["Until I change it",0],["30 days",30],["90 days",90],["1 year",365]].map(([l,n])=>el("button",{type:"button",class:"chipbtn","data-n":String(n),onclick:()=>{const vv=n?plus(n):null;dIn.value=vv||"";set("until",vv);markU()}},l)));markU();
+    saveB.onclick=()=>{if(ed.role==="admin"&&u.role!=="admin"&&!confirm(`Make ${nm} an admin? Admins can change users, settings and all data.`))return;
+      const ch=[];if((ed.label||"")!==(u.label||""))ch.push("name → "+(ed.label||p.name||""));if(ed.role!==u.role)ch.push("role → "+ed.role);if((ed.agent||"")!==(u.agent||""))ch.push("agent → "+(ed.agent||"none"));if((ed.until||"")!==(u.until||""))ch.push("access → "+(ed.until?"until "+ed.until:"until I change it"));if((ed.note||"")!==(u.note||""))ch.push("note");
+      roles[id]=Object.assign({},u,{label:ed.label,role:ed.role,agent:ed.role==="agent"?ed.agent:"",until:ed.until||null,note:(ed.note||"").slice(0,200),changedAt:new Date().toISOString(),changedBy:S.me&&S.me.id});saveRoles(roles,true);logAct("access",`${ed.label||nm}: ${ch.join(", ")}`);toast(`Saved · ${ed.label||nm}: ${ch.join(", ")}`);draw()};
+    c=el("div",{class:"ucard"+(u.disabled||exp?" off":"")},el("div",{class:"uh"},el("input",{type:"checkbox",class:"uchk","aria-label":"Select "+nm,checked:sel.has(id)||null,onchange:e=>{e.target.checked?sel.add(id):sel.delete(id);drawBulk()}}),el("img",{src:p.avatarUrl||"",alt:""}),el("div",{style:"min-width:0;flex:1"},el("b",{text:nm}),el("div",{class:"hint",text:[mail,u.disabled?"Login blocked":exp?"Access expired":"Can log in",u.until?"access until "+u.until:"access until you change it",seen?"last seen "+new Date(seen).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"not seen yet"].filter(Boolean).join(" · ")})),el("span",{class:"pill "+(u.role==="admin"?"p-bad":u.role==="manager"?"p-warn":"p-acc"),text:u.role})),
+      el("div",{class:"form"},el("label",{},"Name shown",el("input",{type:"text",value:ed.label||p.name||"",placeholder:p.name||"Name",maxlength:60,oninput:e=>set("label",e.target.value.trim())})),el("label",{},"Role",roleSel),el("label",{},"Agent (agent role)",agSel),
+        el("label",{},"Access until",dIn,uq),el("label",{},"Note",el("input",{type:"text",value:ed.note,placeholder:"Team, phone, reason…",oninput:e=>set("note",e.target.value)}))),
+      el("div",{class:"filters savebar",style:"margin:10px 0 0"},saveB,cancelB,stat),
+      el("div",{class:"filters",style:"margin:8px 0 0"},el("button",{class:"btn sm",onclick:()=>{if(!confirm(`${u.disabled?"Allow":"Block"} login for ${nm}?`))return;upd(id,{disabled:!u.disabled},`${nm} ${u.disabled?"allowed":"blocked"}`);draw()}},u.disabled?"Allow login":"Block login"),
+        exp?el("button",{class:"btn sm",onclick:()=>{upd(id,{until:plus(90)},`${nm} renewed 90 days`);draw()}},"Renew 90 days"):null,
+        mail?el("button",{class:"btn sm",onclick:()=>sendSignInLink(mail,nm)},icon("mail"),"Send sign-in link"):null,
+        el("button",{class:"btn sm",onclick:()=>startPreview(u.role==="admin"?"manager":u.role,u.agent)},icon("eye"),"See what they see"),
+        mail?el("button",{class:"btn sm",onclick:()=>copyText(inviteText({email:mail,name:nm},u))},icon("copy"),"Copy welcome message"):null,
+        el("button",{class:"btn sm",onclick:()=>{if(confirm(`Remove ${nm}'s access?`)){delete roles[id];saveRoles(roles,true);logAct("access","Removed "+nm);ids.splice(ids.indexOf(id),1);draw()}}},"Remove"),el("span",{class:"hint",text:ROLE_INFO[u.role]||""})));
+    return c};
+  const showList=f=>{fr.value=f;draw();const lc=list.closest(".card");if(lc)lc.scrollIntoView({behavior:"smooth",block:"start"})};
   const draw=()=>{const q=fq.value.toLowerCase(),f=fr.value;
     const shown=ids.filter(id=>roles[id]).filter(id=>{const u=roles[id],p=ps[id]||{};const seen=pres[id]&&pres[id].at;
-      if(f.startsWith("r:")&&u.role!==f.slice(2))return false;if(f==="blocked"&&!u.disabled)return false;if(f==="expired"&&!isExp(u))return false;
+      if(f.startsWith("r:")&&u.role!==f.slice(2))return false;if(f==="am"&&!["admin","manager"].includes(u.role))return false;if(f==="va"&&!["viewer","agent"].includes(u.role))return false;if(f==="blocked"&&!u.disabled)return false;if(f==="expired"&&!isExp(u))return false;
       if(f==="soon"&&!(u.until&&!isExp(u)&&(new Date(u.until)-Date.now())/DAY<14))return false;if(f==="idle"&&seen&&(Date.now()-new Date(seen))/DAY<60)return false;
-      return !q||[p.name,u.label,u.email,p.email,u.note,u.agent,u.role].join(" ").toLowerCase().includes(q)}).sort((a,b)=>String((ps[a]||{}).name||roles[a].label||"").localeCompare(String((ps[b]||{}).name||roles[b].label||"")));
-    list.replaceChildren(...(shown.length?shown.map(id=>{const u=roles[id],p=ps[id]||{},nm=p.name||u.label||u.email||"Person";const seen=pres[id]&&pres[id].at;const exp=isExp(u);const mail=u.email||p.email||"";
-      return el("div",{class:"ucard"+(u.disabled||exp?" off":"")},el("div",{class:"uh"},el("input",{type:"checkbox",class:"uchk","aria-label":"Select "+nm,checked:sel.has(id)||null,onchange:e=>{e.target.checked?sel.add(id):sel.delete(id);drawBulk()}}),el("img",{src:p.avatarUrl||"",alt:""}),el("div",{style:"min-width:0;flex:1"},el("b",{text:nm}),el("div",{class:"hint",text:[mail,u.disabled?"Login blocked":exp?"Access expired":"Can log in",seen?"last seen "+new Date(seen).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"not seen yet"].filter(Boolean).join(" · ")})),el("span",{class:"pill "+(u.role==="admin"?"p-bad":u.role==="manager"?"p-warn":"p-acc"),text:u.role})),
-        el("div",{class:"form"},el("label",{},"Role",el("select",{onchange:e=>{if(e.target.value==="admin"&&!confirm(`Make ${nm} an admin?`)){e.target.value=u.role;return}upd(id,{role:e.target.value},`${nm} → ${e.target.value}`)}},ROLE_ORDER.map(r=>el("option",{value:r,selected:u.role===r},ROLE_TITLE[r])))),
-          el("label",{},"Agent (agent role)",el("select",{disabled:u.role!=="agent"?true:null,onchange:e=>upd(id,{agent:e.target.value},`${nm} agent ${e.target.value}`)},el("option",{value:""},"—"),agents.map(a=>el("option",{value:a,selected:u.agent===a},a)))),
-          el("label",{},"Access until",el("input",{type:"date",value:u.until||"",onchange:e=>upd(id,{until:e.target.value||null},`${nm} access until ${e.target.value||"no end"}`)})),
-          el("label",{},"Note",el("input",{type:"text",value:u.note||"",placeholder:"Team, phone, reason…",onchange:e=>upd(id,{note:e.target.value.slice(0,200)})}))),
-        el("div",{class:"filters",style:"margin:10px 0 0"},el("button",{class:"btn sm",onclick:()=>upd(id,{disabled:!u.disabled},`${nm} ${u.disabled?"allowed":"blocked"}`)},u.disabled?"Allow login":"Block login"),
-          exp?el("button",{class:"btn sm",onclick:()=>upd(id,{until:plus(90)},`${nm} renewed 90 days`)},"Renew 90 days"):null,
-          el("button",{class:"btn sm",onclick:()=>startPreview(u.role==="admin"?"manager":u.role,u.agent)},icon("eye"),"See what they see"),
-          mail?el("button",{class:"btn sm",onclick:()=>copyText(inviteText({email:mail,name:nm},u))},icon("copy"),"Copy welcome message"):null,
-          el("button",{class:"btn sm",onclick:()=>{if(confirm(`Remove ${nm}'s access?`)){delete roles[id];saveRoles(roles,true);logAct("access","Removed "+nm);ids.splice(ids.indexOf(id),1);draw()}}},"Remove"),el("span",{class:"hint",text:ROLE_INFO[u.role]||""})))}):[el("p",{class:"hint",text:ids.length?"Nobody matches the filter.":"Nobody added yet. You (the owner) always have admin access."})]));
+      return !q||[p.name,u.label,u.email,p.email,u.note,u.agent,u.role].join(" ").toLowerCase().includes(q)}).sort((a,b)=>String(roles[a].label||(ps[a]||{}).name||"").localeCompare(String(roles[b].label||(ps[b]||{}).name||"")));
+    list.replaceChildren(...(shown.length?shown.map(personCard):[el("p",{class:"hint",text:ids.length?"Nobody matches the filter.":"Nobody added yet. You (the owner) always have admin access."})]));
     const vis=new Set(shown);for(const id of [...sel])if(!vis.has(id))sel.delete(id);drawBulk()};
   fq.oninput=draw;fr.onchange=draw;
   const selAll=el("button",{class:"btn sm",onclick:()=>{list.querySelectorAll(".uchk").forEach(c=>{c.checked=true;c.dispatchEvent(new Event("change"))})}},"Select all shown");
@@ -2810,7 +2828,7 @@ renderFresh=function(){renderFresh3();const m=S.model;const f=$("#fresh");if(!m|
   const W={waiting:{d:[],s:[]},recheck:{d:[],s:[]}};
   for(const d of m.devices){const s=(S.actions[devKey(d)]||{}).status;if(!s||!CLOSED.has(s)||s==="ignored")continue;const w=workState("device",d).state;if(W[w])W[w].d.push(d)}
   for(const x of m.simList){const s=(S.actions[simKey(x)]||{}).status;if(!s||!CLOSED.has(s)||s==="ignored")continue;const w=workState("sim",x).state;if(W[w])W[w].s.push(x)}
-  const tabs=o=>[o.d.length?{label:"Devices",kind:"device",items:o.d,group:"action"}:null,o.s.length?{label:"SIMs",kind:"sim",items:o.s,group:"action"}:null].filter(Boolean);
+  const tabs=o=>[o.d.length?{label:"Devices",kind:"device",items:o.d,group:"company"}:null,o.s.length?{label:"SIMs",kind:"sim",items:o.s,group:"company"}:null].filter(Boolean);
   const n1=W.waiting.d.length+W.waiting.s.length,n2=W.recheck.d.length+W.recheck.s.length;
   if(n1)f.append(el("button",{class:"chip workchip ok",title:"Marked fixed since the last data pull. The next weekly pull confirms them.",onclick:()=>drill({title:"Handled — waiting for weekly check",sub:"You marked these fixed. When the next weekly Inrico and carrier data arrives, each one is checked again.",view:"all",tabs:tabs(W.waiting)})},"✓ ",el("b",{class:"mono",text:fmt(n1)})," handled · waiting for weekly check"));
   if(n2)f.append(el("button",{class:"chip workchip warn",title:"Marked fixed, but the newer data still shows the problem.",onclick:()=>drill({title:"Needs re-check",sub:"Marked fixed, but the newest data still shows the problem.",view:"all",tabs:tabs(W.recheck)})},"↻ ",el("b",{class:"mono",text:fmt(n2)})," need re-check"))};
@@ -2837,6 +2855,40 @@ document.head.append(el("style",{text:".dr-sum .fin-tg{border-color:var(--ok);co
 document.head.append(el("style",{text:".kv .kvhl em{color:var(--ok);font-weight:700}.kv .kvhl span{color:var(--ok)}.dupcmp{margin:8px 0 10px}.dupcmp tr.latest td{background:var(--ok-soft)}.dupcmp td.hl{color:var(--ok);font-weight:700}"}));
 
 document.head.append(el("style",{text:".item.older{opacity:.72}.item.older:hover{opacity:1}"}));
+
+/* ---- sign-in links, sign-in notifications, welcome ---- */
+async function sendSignInLink(email,name,quiet){if(!isSite()||!window.firebase||!firebase.auth){toast("Sign-in links work on the website version.");return}
+  try{await firebase.auth().sendSignInLinkToEmail(email,{url:siteUrl(),handleCodeInApp:true});if(!quiet)toast(`Sign-in link sent to ${email}. They click it in the email and they are in.`);logAct("access","Sign-in link sent to "+email)}catch(e){toast("Link not sent: "+((e&&e.message)||e))}}
+let notifOn=false;const NKEY="poc-notif-seen";const notif={items:[],start:Date.now()};
+function notifSeen(){try{return +localStorage.getItem(NKEY)||0}catch(_){return 0}}
+function bellPaint(){const b=$("#pocBell");if(!b)return;const seen=notifSeen()||notif.start-7*DAY;const n=notif.items.filter(x=>x.t>seen).length;b.querySelector(".bb").textContent=n>99?"99+":n;b.querySelector(".bb").hidden=!n}
+function bellPanel(){const old=$("#pocBellP");if(old){old.remove();return}const seen=notifSeen()||notif.start-7*DAY;
+  const p=el("div",{class:"bellp",id:"pocBellP"},el("div",{class:"bellh"},el("b",{text:"Sign-ins"}),el("button",{class:"btn sm",onclick:()=>{try{localStorage.setItem(NKEY,String(Date.now()))}catch(_){}bellPaint();p.remove()}},"Mark all read"),
+      "Notification" in window&&Notification.permission!=="granted"?el("button",{class:"btn sm",onclick:()=>Notification.requestPermission().then(r=>toast(r==="granted"?"Desktop alerts on":"Desktop alerts blocked by the browser"))},"Desktop alerts"):null),
+    ...(notif.items.length?notif.items.slice(0,30).map(x=>{const r=S.roles[x.id];return el("div",{class:"belli"+(x.t>seen?" new":"")},el("img",{src:x.avatarUrl||"",alt:""}),el("div",{},el("b",{text:(r&&r.label)||x.name||x.email||"Someone"}),el("div",{class:"hint",text:`${x.email||""} · ${new Date(x.t).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}`})),
+      r?el("span",{class:"pill p-acc",text:r.role}):el("a",{class:"btn sm pri",href:"#users",onclick:()=>p.remove()},"Give access"))}):[el("p",{class:"hint",style:"padding:10px",text:"No sign-ins yet."})]));
+  document.body.append(p);setTimeout(()=>document.addEventListener("click",function h(e){if(!p.contains(e.target)&&e.target.id!=="pocBell"&&!e.target.closest("#pocBell")){p.remove();document.removeEventListener("click",h)}}),50)}
+function notifInit(){if(notifOn||S.role!=="admin"||S.preview||!S.db)return;notifOn=true;
+  const ta=document.querySelector(".tb-actions");if(ta&&!$("#pocBell")){const b=el("button",{class:"ibtn",id:"pocBell",title:"Who signed in","aria-label":"Sign-in notifications",onclick:bellPanel});b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';b.append(el("span",{class:"bb",hidden:true}));ta.prepend(b)}
+  const me=S.me&&S.me.id;const known=new Map();
+  const onDocs=(docs,src)=>{let fresh=[];for(const d of docs){const x=d.data()||{};const t=x.at?+new Date(x.at):0;if(!t||d.id===me)continue;const prev=known.get(d.id);if(prev&&prev.t>=t)continue;
+      const item={id:d.id,t,name:x.name||(prev&&prev.name)||"",email:x.email||(prev&&prev.email)||"",avatarUrl:x.photo||(prev&&prev.avatarUrl)||""};known.set(d.id,item);if(t>notif.start)fresh.push(item)}
+    notif.items=[...known.values()].sort((a,b)=>b.t-a.t);bellPaint();
+    for(const x of fresh){const r=S.roles[x.id];const msg=`${(r&&r.label)||x.name||x.email} signed in${r?" ("+r.role+")":" — no access yet"}`;toast("● "+msg);
+      try{if("Notification" in window&&Notification.permission==="granted")new Notification("POC Ops Center",{body:msg})}catch(_){}}};
+  try{S.db.collection(isSite()?"profiles":"presence").limit(1000).onSnapshot(s=>onDocs(s.docs),()=>{})}catch(_){}}
+function welcomeUser(){if(!S.role||S.preview||!S.me||!S.me.id)return;const k="poc-welcome-"+S.me.id+"-"+S.role;let shown=false;try{shown=!!localStorage.getItem(k)}catch(_){}
+  let again=false;try{again=!!sessionStorage.getItem("poc-hello");sessionStorage.setItem("poc-hello","1")}catch(_){again=true}if(again)return;
+  const r=S.roles[S.me.id]||{};const nm=r.label||S.me.name||"";
+  if(!shown){try{localStorage.setItem(k,"1")}catch(_){}const box=el("div",{class:"welcome"},el("div",{class:"wcard"},el("h2",{text:`Welcome${nm?", "+nm.split(" ")[0]:""}!`}),el("p",{text:`You are signed in to the POC Operations Center as ${ROLE_TITLE[S.role]||S.role}.`}),el("p",{class:"hint",text:(ROLE_INFO[S.role]||"")+(r.until?` · Access until ${r.until}.`:"")}),el("button",{class:"btn pri",onclick:()=>box.remove()},"Start")));document.body.append(box)}
+  else toast(`Welcome back${nm?", "+nm.split(" ")[0]:""} · signed in as ${ROLE_TITLE[S.role]||S.role}`)}
+const resolveRole9=resolveRole;resolveRole=function(){resolveRole9();if(S.role){welcomeUser();notifInit()}};
+document.head.append(el("style",{text:`#pocBell{position:relative}#pocBell .bb{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--bad);color:#fff;font:700 11px var(--f-num);display:grid;place-items:center}
+.bellp{position:fixed;top:64px;right:16px;z-index:96;width:min(380px,calc(100vw - 32px));max-height:70vh;overflow:auto;background:var(--bg);border:1px solid var(--acc);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+.bellh{display:flex;gap:6px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}.bellh b{flex:1}
+.belli{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}.belli img{width:32px;height:32px;border-radius:50%}.belli.new{background:var(--acc-soft)}
+.welcome{position:fixed;inset:0;z-index:97;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:16px}.wcard{max-width:440px;background:var(--bg);border:1px solid var(--acc);border-radius:16px;padding:24px;box-shadow:var(--glow);text-align:center}.wcard h2{font:800 22px var(--f-hud);letter-spacing:.06em;margin:0 0 8px}
+.ucard.dirty{border-color:var(--acc2);box-shadow:0 0 0 1px var(--acc2)}.savebar .btn.pri[disabled]{opacity:.45}`}));
 
 /* ================= boot ================= */
 render();
