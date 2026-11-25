@@ -786,7 +786,23 @@ async function paintMe(){
   const box=$("#me");const me=S.me;if(!me){box.hidden=true;return}
   box.hidden=false;box.replaceChildren(el("img",{src:me.avatarUrl,alt:""}),el("div",{},el("b",{text:me.name||"Signed in"}),el("span",{text:me.isOwner?"super admin":S.role?(S.role+(S.agent?" · "+S.agent:"")):"no access"})));
 }
+
+/* ---- editable header title + subtitle (Admin → Branding) ---- */
+const TITLE_DEF={title:"POC Ops Center",hl:"Ops",sub:"Expert Mobile Communications · devices · SIMs · licences"};
+const brandText=()=>{const ST=S.settings||{};return {title:(ST.brandTitle||"").trim()||TITLE_DEF.title,hl:ST.brandHl!=null?ST.brandHl:TITLE_DEF.hl,sub:ST.brandSub!=null?ST.brandSub:TITLE_DEF.sub}};
+function titleNodes(t,hl){if(!hl||!t.toLowerCase().includes(hl.toLowerCase()))return [t];const i=t.toLowerCase().indexOf(hl.toLowerCase());return [t.slice(0,i),el("b",{text:t.slice(i,i+hl.length)}),t.slice(i+hl.length)]}
+function paintTitle(){const b=brandText();const h=document.querySelector(".ttl h1");if(h)h.replaceChildren(...titleNodes(b.title,b.hl));const sb=$("#subt");if(sb){sb.textContent=b.sub;sb.hidden=!b.sub}document.title=b.title}
+function brandTextNode(){const b=brandText();const st={title:b.title,hl:b.hl,sub:b.sub};
+  const pv=el("div",{class:"ttl brandpv"});const draw=()=>pv.replaceChildren(el("h1",{},...titleNodes(st.title||TITLE_DEF.title,st.hl)),st.sub?el("div",{class:"sub",text:st.sub}):null);draw();
+  const inp=(k,l,ph,max)=>el("label",{},l,el("input",{type:"text",class:"inp",value:st[k]||"",placeholder:ph,maxlength:max,oninput:e=>{st[k]=e.target.value;draw()}}));
+  return el("div",{class:"brandtxt mt"},el("h3",{style:"margin:14px 0 6px",text:"Title & subtitle"}),
+    el("div",{class:"form invform"},inp("title","Title",TITLE_DEF.title,40),inp("hl","Highlighted word",TITLE_DEF.hl,20),inp("sub","Subtitle (empty = hidden)",TITLE_DEF.sub,90)),
+    el("div",{class:"hint",style:"margin:8px 0 4px",text:"Preview"}),pv,
+    el("div",{class:"filters mt"},el("button",{class:"btn pri",onclick:async()=>{const t=(st.title||"").trim();if(!t){toast("Type a title first.");return}await saveSettings({brandTitle:t,brandHl:(st.hl||"").trim(),brandSub:(st.sub||"").trim()});logAct("branding",`Title "${t}" · subtitle "${(st.sub||"").trim()}"`);paintTitle()}},icon("check"),"Save title & subtitle"),
+      el("button",{class:"btn",onclick:async()=>{Object.assign(st,TITLE_DEF);draw();await saveSettings({brandTitle:null,brandHl:null,brandSub:null});logAct("branding","Title reset to default");paintTitle();render(true)}},"Reset to default")))}
+document.head.append(el("style",{text:".brandpv{padding:12px 16px;border:1px dashed var(--line);border-radius:12px;background:var(--panel2)}.brandpv h1{margin:0}"}));
 function paintLogo(){
+  paintTitle();
   const id=(S.settings||{}).logoAsset;const b=$("#rail .brand");if(!b){const t=$("#toplogo");if(t){t.hidden=!id;t.replaceChildren(id?el("img",{src:aurl(id),alt:"Expert Mobile Communications"}):"")}return}
   const cid=(S.settings||{}).logoCircle;
   b.replaceChildren(cid?el("img",{src:aurl(cid),alt:"Expert Mobile",onerror:e=>{e.target.replaceWith(emMark(40))}}):id?el("img",{src:aurl(id),alt:"Expert Mobile",onerror:e=>{e.target.replaceWith(emMark(40))}}):emMark(40));
@@ -1585,7 +1601,7 @@ VIEWS.admin=v=>{
     return el("div",{class:"logo-slot",tabindex:0,"data-logo-slot":key},el("div",{class:"logo-prev"+(key==="logoCircle"?" round":"")},node),el("div",{},el("b",{text:label}),el("p",{class:"hint",text:hint}),el("div",{class:"filters"},el("label",{class:"btn sm"},"Upload",fi),ST[key]?el("button",{class:"btn sm",onclick:()=>{saveSettings({[key]:null});logAct("branding","Removed "+label)}},"Reset"):null)))};
   v.append(el("div",{class:"grid g2"},
     el("div",{class:"card"},el("h3",{text:"Branding"}),slot("logoAsset","Wide logo","Header. Click this box and press Ctrl+V to paste an image.",ST.logoAsset?logoNode(150):emMark(48)),slot("logoCircle","Circle logo","Side bar, loading screen, sign-in screen.",circleNode(64)),
-      el("label",{class:"form",style:"display:block;margin-top:10px"},"Default theme for everyone",el("select",{class:"inp",onchange:e=>{saveSettings({defaultTheme:e.target.value});logAct("settings","Default theme "+e.target.value)}},[["","Follow each device"],["dark","Dark (Jarvis)"],["light","Light"]].map(([k,l])=>el("option",{value:k,selected:(ST.defaultTheme||"")===k},l))))),
+      el("label",{class:"form",style:"display:block;margin-top:10px"},"Default theme for everyone",el("select",{class:"inp",onchange:e=>{saveSettings({defaultTheme:e.target.value});logAct("settings","Default theme "+e.target.value)}},[["","Follow each device"],["dark","Dark (Jarvis)"],["light","Light"]].map(([k,l])=>el("option",{value:k,selected:(ST.defaultTheme||"")===k},l)))),brandTextNode()),
     (()=>{const b=ST.banner||{};const t=el("textarea",{class:"inp",rows:3,style:"width:100%",placeholder:"e.g. Turn off idle SIMs for Rock Creek before Friday"},b.text||"");const lv=el("select",{class:"inp"},[["info","Info"],["warn","Warning"],["bad","Urgent"]].map(([k,l])=>el("option",{value:k,selected:b.level===k},l)));
       return el("div",{class:"card"},el("h3",{text:"Announcement for all users"}),t,el("div",{class:"filters mt"},lv,el("button",{class:"btn pri",onclick:()=>{saveSettings({banner:{text:t.value.slice(0,400),level:lv.value,on:true,at:new Date().toISOString()}});logAct("announcement",t.value)}},"Publish"),b.on?el("button",{class:"btn",onclick:()=>{saveSettings({banner:Object.assign({},b,{on:false})});logAct("announcement","Hidden")}},"Hide"):null),el("p",{class:"hint",text:b.on?"Showing now at the top of every page.":"No announcement showing."}))})()));
   // alert rules
