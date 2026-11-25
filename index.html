@@ -3347,12 +3347,42 @@ async function invReport(){
     const best=R.filter(r=>r.sold>0).sort((a,b)=>b.amt-a.amt);const BS=[["Rank","Product Key","Description","Units","Sales $","Orders","ABC","On Hand","Status","Trend %"],...best.map((r,i)=>[N(i+1),r.k,r.n,N(r.sold,"#,##0"),N(Math.round(r.amt*100)/100,"$#,##0"),N(r.ord),r.abc||"",N(r.oh),r.status,r.trend!=null?N(r.trend,"0%"):""])];
     const dead=R.filter(r=>r.status==="No sales").sort((a,b)=>(b.ohVal||0)-(a.ohVal||0));const DS=[["Product Key","Description","Vendor","On Hand","Unit Cost","Stock $","Last Sale"],...dead.map(r=>[r.k,r.n,r.v,N(r.oh),r.c!=null?N(r.c,"$#,##0.00"):"",r.ohVal!=null?N(r.ohVal,"$#,##0.00"):"",r.ls?D(r.ls):"never"])];
     const SRC=[["POS table","What it is","Used for"],["TransactionItems","Sales lines (CNTR, ITEM, QTY, TXTY, PRIC)","What was sold"],["Transactions","Contracts (CNTR, DATE, STAT)","When it was sold"],["ItemFile","Item master (KEY, Name, NUM, QTY, TYPE, CaseQty)","Products, stock, cost, case qty"],["PurchaseOrder","PO headers","Lead time, open POs"],["PurchaseOrderDetail","PO lines","Lead time, qty on order"],["VendorFile","Vendors","Vendor names"]];
-    X.utils.book_append_sheet(wb,sheet(SUM,[44,18,16]),"Summary");X.utils.book_append_sheet(wb,sheet(SET,[34,14,70]),"Settings");X.utils.book_append_sheet(wb,wsMM,"Min-Max");
+    // clickable summary: every count opens a sheet with exactly those products
+    const LH=["Product Key","Description","Vendor","Status","Pattern","ABC","On Hand","On Order","Qty Sold","Sales $","MIN","MAX","Order Qty","Order $","Unit Cost","Stock $","Days of Cover","Trend %","Last Sale"];
+    const lrow=r=>[r.k,r.n,r.v||"",r.status,r.pat,r.abc||"",N(r.oh,"#,##0"),N(r.oo,"#,##0"),N(r.sold,"#,##0"),N(Math.round(r.amt*100)/100,"$#,##0"),N(r.min,"#,##0"),N(r.max,"#,##0"),N(r.order,"#,##0"),r.val!=null?N(r.val,"$#,##0.00"):"",r.c!=null?N(r.c,"$#,##0.00"):"",r.ohVal!=null?N(r.ohVal,"$#,##0.00"):"",r.cover!=null?N(Math.round(r.cover),"#,##0"):"",r.trend!=null?N(r.trend,"0%"):"",r.ls?D(r.ls):""];
+    const isO=r=>r.status==="REORDER"||r.status==="OUT OF STOCK";
+    const LISTS=[
+      ["Products in report","List - All products",rows,(a,b)=>b.sold-a.sold],
+      ["Products sold in window","List - Sold",R.filter(r=>r.sold>0),(a,b)=>b.sold-a.sold],
+      ["Units sold","List - Sold",null],["Sales $","List - Sold",null],
+      ["NEED TO ORDER NOW (products)","List - Need to order",re,(a,b)=>(b.val||0)-(a.val||0)],
+      ["  of which out of stock","List - Out of stock",R.filter(r=>r.status==="OUT OF STOCK"),(a,b)=>(b.val||0)-(a.val||0)],
+      ["Units to order","List - Need to order",null],["Order value $","List - Need to order",null],
+      ["Regular sellers to order","List - Order Regular",re.filter(r=>r.pat==="Regular"),(a,b)=>(b.val||0)-(a.val||0)],["Regular sellers — units / $","List - Order Regular",null],
+      ["Out of stock but on order","List - Out but on order",R.filter(r=>r.status==="Out · on order"),(a,b)=>b.sold-a.sold],
+      ["Above MAX (products)","List - Above max",R.filter(r=>r.status==="Above max"),(a,b)=>(b.exVal||0)-(a.exVal||0)],
+      ["No sales in window (products)","List - No sales",R.filter(r=>r.status==="No sales"),(a,b)=>(b.ohVal||0)-(a.ohVal||0)],
+      ["Excess stock over MAX $","List - Excess stock",R.filter(r=>r.excess>0),(a,b)=>(b.exVal||0)-(a.exVal||0)],
+      ["OK","List - OK",R.filter(r=>r.status==="OK"),(a,b)=>b.sold-a.sold],
+      ["Pattern — Regular","List - Regular",R.filter(r=>r.pat==="Regular"),(a,b)=>b.sold-a.sold],["Pattern — Occasional","List - Occasional",R.filter(r=>r.pat==="Occasional"),(a,b)=>b.sold-a.sold],
+      ["Pattern — Project / lumpy","List - Project lumpy",R.filter(r=>r.pat==="Project / lumpy"),(a,b)=>b.sold-a.sold],
+      ["ABC — A products","List - ABC A",R.filter(r=>r.abc==="A"),(a,b)=>b.amt-a.amt],["ABC — B products","List - ABC B",R.filter(r=>r.abc==="B"),(a,b)=>b.amt-a.amt],["ABC — C products","List - ABC C",R.filter(r=>r.abc==="C"),(a,b)=>b.amt-a.amt]];
+    const listSheets=[];
+    for(const [label,sn,L,srt] of LISTS){if(!L)continue;const Ls=L.slice().sort(srt);
+      const ar=[[label.trim()+" — "+fmt(Ls.length)+" products","","","← Back to Summary"],[`Units sold ${fmt(Ls.reduce((a,r)=>a+r.sold,0))} · Sales ${money(Ls.reduce((a,r)=>a+r.amt,0))} · On hand ${fmt(Ls.reduce((a,r)=>a+r.oh,0))} (${money(Ls.reduce((a,r)=>a+(r.ohVal||0),0))}) · To order ${fmt(Ls.reduce((a,r)=>a+r.order,0))} (${money(Ls.reduce((a,r)=>a+(r.val||0),0))})`],[],LH,...Ls.map(lrow)];
+      const ws=sheet(ar,[16,38,24,14,15,5,9,9,9,11,7,7,9,11,10,11,9,8,11]);ws["D1"].l={Target:"#'Summary'!A1",Tooltip:"Back to Summary"};ws["!autofilter"]={ref:`A4:S${Ls.length+4}`};listSheets.push([sn,ws])}
+    const wsSum=sheet(SUM,[44,18,16,26]);const lm=Object.fromEntries(LISTS.map(x=>[x[0],x[1]]));
+    SUM.forEach((row,i)=>{const lab=row&&row[0];const sn=typeof lab==="string"&&lm[lab];if(!sn)return;const ref="#'"+sn+"'!A1";
+      wsSum[C(i,0)].l={Target:ref,Tooltip:"Open the product list"};wsSum[C(i,3)]={t:"s",v:"View products →",l:{Target:ref,Tooltip:"Open the product list"}}});
+    wsSum["!ref"]=X.utils.encode_range({s:{r:0,c:0},e:{r:SUM.length,c:3}});
+    wsSum[C(2,0)]={t:"s",v:"Click any line (or 'View products →') to open the exact list of products behind that number."};
+    X.utils.book_append_sheet(wb,wsSum,"Summary");X.utils.book_append_sheet(wb,sheet(SET,[34,14,70]),"Settings");X.utils.book_append_sheet(wb,wsMM,"Min-Max");
     const wsO=sheet(ORD,[26,16,38,14,15,5,8,8,7,7,7,9,10,12,9,9]);wsO["!autofilter"]={ref:`A1:P${OL.length+1}`};X.utils.book_append_sheet(wb,wsO,"Order List");
     X.utils.book_append_sheet(wb,sheet(VEN,[34,16,10,14,18]),"Order by Vendor");
     X.utils.book_append_sheet(wb,sheet(monthSheet(0),[16,36,...ml.map(()=>9),9,10,9,9,8]),"Monthly Qty");X.utils.book_append_sheet(wb,sheet(monthSheet(1),[16,36,...ml.map(()=>10),11,11,10,10,8]),"Monthly Sales $");
     X.utils.book_append_sheet(wb,sheet(TOT,[18,12,14,13]),"Monthly Totals");X.utils.book_append_sheet(wb,sheet(YR,[16,36,...yrs.map(()=>11),...yrs.map(()=>13)]),"Yearly");
     X.utils.book_append_sheet(wb,sheet(BS,[6,16,38,9,12,8,5,8,14,8]),"Best Sellers");X.utils.book_append_sheet(wb,sheet(DS,[16,38,26,9,10,11,11]),"Dead Stock");X.utils.book_append_sheet(wb,sheet(SRC,[22,48,30]),"Data Sources");
+    for(const [sn,ws] of listSheets)X.utils.book_append_sheet(wb,ws,sn);
     wb.Workbook={CalcPr:{fullCalcOnLoad:true}};
     const out=X.write(wb,{bookType:"xlsx",type:"array",compression:true});
     await saveFile(`Product_Min_Max-${(meta.exported||stamp())}.xlsx`,new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
