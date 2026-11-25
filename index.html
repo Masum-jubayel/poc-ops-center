@@ -1082,7 +1082,7 @@ const DR={
 };
 
 /* ================= rail / router / header ================= */
-const NAV=[["overview","Overview"],["matching","Matching"],["status","Active / Off"],["licences","Licences"],["alerts","Alerts"],["companies","Companies"],["devices","Devices"],["sims","SIMs"],["compare","Compare"],["products","Products"],["users","Users"],["admin","Admin"],["data","Data hub"]];
+const NAV=[["overview","Overview"],["matching","Matching"],["status","Active / Off"],["licences","Licences"],["alerts","Alerts"],["companies","Companies"],["devices","Devices"],["sims","SIMs"],["compare","Compare"],["products","Products"],["users","Users"],["admin","Admin"],["data","Data hub"],["help","Help & guides"]];
 function buildRail(){const r=$("#rail");const cur=S.view;r.replaceChildren(el("div",{class:"brand"}));paintLogo();
   for(const [k,l] of NAV){if((k==="users"||k==="admin")&&S.role!=="admin")continue;if(k==="products"&&!invOK())continue;const a=el("a",{href:"#"+k,class:cur===k||(k==="companies"&&cur==="company")?"on":"","aria-label":l},icon(k),l);
     if((k==="data"||k==="products")&&invOK()){const n=dueList().filter(x=>x.area===k).length;if(n)a.append(el("span",{class:"badge",title:n+" weekly upload(s) still needed",text:n}))}
@@ -1100,7 +1100,7 @@ function render(keep){
   buildRail();
   const v=el("div",{class:"view"});
   if(S.importing)v.append(el("div",{class:"card",style:"margin-bottom:14px"},el("h3",{text:"Saving new platform data"}),el("div",{class:"prog"},el("i",{id:"impProg",style:`width:${pct(S.importing.done,S.importing.total)}%`})),el("div",{class:"muted",id:"impTxt",text:`${S.importing.label} ${S.importing.done} of ${S.importing.total}`})));
-  if(r.view==="products"){VIEWS.products(v,r)}
+  if(r.view==="products"||r.view==="help"){VIEWS[r.view](v,r)}
   else if(!S.model&&r.view!=="data"&&r.view!=="users"){v.append(el("div",{class:"empty"},el("h3",{text:"Preparing the dashboard…"})))}
   else if(!S.model||!S.model.devices.length&&!S.model.simList.length){if(r.view==="data"||r.view==="users")VIEWS[r.view](v,r);else v.append(el("div",{class:"empty"},el("h3",{text:"No data yet"}),el("p",{text:"Run the weekly refresh to fill the database."}),el("a",{href:"#data",text:"How the refresh works"})))}
   else{if(r.view==="users"&&S.role!=="admin")location.hash="overview";else (VIEWS[r.view]||VIEWS.overview)(v,r)}
@@ -3448,7 +3448,7 @@ function dueBanner(due){const ws=weekStart();const go=x=>e=>{if(x.area==="produc
       el("div",{class:"filters",style:"margin:8px 0 0"},due.map(x=>el("a",{class:"chip duechip",href:"#"+x.area,onclick:go(x)},el("span",{class:"dot bad"}),(x.area==="products"?"Point of Rental · ":"Data hub · ")+x.l)))))}
 function uploadHistory(area,title){const box=el("div",{},loaderNode("Loading upload history…"));const card=el("div",{class:"card mt"},el("h3",{text:title||"Upload footprint"}),box);
   (async()=>{try{const q=await S.db.collection("uplog").orderBy("at","desc").limit(400).get();const L=q.docs.map(d=>d.data()).filter(x=>!area||x.area===area);
-    box.replaceChildren(L.length?table([{l:"When",v:x=>x.at,f:x=>whenTxt(x.at)},{l:"Who",v:x=>x.by||x.byEmail||"",f:x=>el("span",{title:x.byEmail||""},x.by||x.byEmail||"—")},{l:"Section",v:x=>x.area==="products"?"Products":"Data hub"},{l:"What",v:x=>x.label||x.kind},{l:"File",v:x=>x.file||""},{l:"Rows / size",v:x=>x.rows!=null?x.rows:x.extra||"",f:x=>x.rows!=null?fmt(x.rows)+(x.extra?" · "+x.extra:""):x.extra||"—"}],L,{sort:0,dir:-1,limit:50})
+    box.replaceChildren(L.length?table([{l:"When",v:x=>x.at,f:x=>whenTxt(x.at)},{l:"Who",v:x=>x.by||x.byEmail||"",f:x=>el("span",{title:x.byEmail||""},x.by||x.byEmail||"—")},{l:"Section",v:x=>x.area==="products"?"Products":x.area==="help"?"Help & guides":"Data hub"},{l:"What",v:x=>x.label||x.kind},{l:"File",v:x=>x.file||""},{l:"Rows / size",v:x=>x.rows!=null?x.rows:x.extra||"",f:x=>x.rows!=null?fmt(x.rows)+(x.extra?" · "+x.extra:""):x.extra||"—"}],L,{sort:0,dir:-1,limit:50})
       :el("p",{class:"hint",text:"No uploads recorded yet. From now on every upload is listed here with who did it."}))}
     catch(e){box.replaceChildren(el("p",{class:"hint",text:"Upload history unavailable: "+(e.message||e)}))}})();
   return card}
@@ -3467,6 +3467,49 @@ function dataSlots(rows){const ws=weekStart(),can=invOK();const body=el("div",{c
     if(can){card.addEventListener("dragover",e=>{e.preventDefault();card.classList.add("over")});card.addEventListener("dragleave",()=>card.classList.remove("over"));card.addEventListener("drop",e=>{e.preventDefault();card.classList.remove("over");go(e.dataTransfer.files[0])})}
     return card}));
   grid.append(body);return grid}
+
+
+/* ================= Help & guides: admin uploads PDF guides, releases or removes them; everyone with access reads released ones ================= */
+IC.help='<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5M9 7h7M9 11h5"/>';
+const GCHUNK=600000;
+async function guideList(){const isA=S.role==="admin";const q=isA?S.db.collection("guides"):S.db.collection("guides").where("released","==",true);
+  const sn=await q.get();return sn.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>(b.released?1:0)-(a.released?1:0)||String(b.at).localeCompare(String(a.at)))}
+async function guidePut(file,title,desc){const raw=new Uint8Array(await file.arrayBuffer());const z=await gz(raw,false);const data=z&&z.length<raw.length?z:raw;const isGz=data!==raw;
+  const id="g"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),n=Math.ceil(data.length/GCHUNK)||1;
+  const meta={title:title||file.name.replace(/\.pdf$/i,""),desc:desc||"",name:file.name,size:raw.length,gz:isGz,chunks:n,mime:file.type||"application/pdf",released:false,at:new Date().toISOString(),by:(S.me&&S.me.name)||"",relAt:null,relBy:""};
+  await S.db.doc("guides/"+id).set(meta);
+  for(let i=0;i<n;i++)await S.db.doc(`guidechunks/${id}_${i}`).set({g:id,d:b64(data.subarray(i*GCHUNK,(i+1)*GCHUNK))});
+  footprint("help","guide-upload","Guide uploaded",file.name,null,kb(raw.length));return id}
+async function guideGet(g){const parts=[];for(let i=0;i<g.chunks;i++){const d=await S.db.doc(`guidechunks/${g.id}_${i}`).get();if(!d.exists)throw new Error("File part missing");parts.push(unb64(d.data().d))}
+  const all=new Uint8Array(parts.reduce((a,p)=>a+p.length,0));let o=0;for(const p of parts){all.set(p,o);o+=p.length}return new Blob([g.gz?await gz(all,true):all],{type:g.mime||"application/pdf"})}
+async function guideDel(g){await S.db.doc("guides/"+g.id).delete();for(let i=0;i<g.chunks;i++)await S.db.doc(`guidechunks/${g.id}_${i}`).delete().catch(()=>{});footprint("help","guide-delete","Guide deleted",g.name,null,"")}
+VIEWS.help=v=>{const isA=S.role==="admin";
+  v.append(secH("Help & guides",isA?"Upload PDF guides, then Release them so everyone can read them. Remove takes a guide off the site again.":"Guides and tutorials released by your admin. Open to read in the browser or download."));
+  const host=el("div",{},loaderNode("Loading guides…"));
+  if(isA){const fi=el("input",{type:"file",accept:"application/pdf,.pdf",hidden:true});const ti=el("input",{type:"text",placeholder:"Title (optional — file name if empty)",maxlength:80});const de=el("input",{type:"text",placeholder:"Short description (optional)",maxlength:200});
+    const msg=el("p",{class:"hint"});
+    const go=async f=>{if(!f)return;if(!/\.pdf$/i.test(f.name)&&f.type!=="application/pdf"){msg.textContent="Please choose a PDF file.";return}if(f.size>20*1048576){msg.textContent="PDF must be under 20 MB.";return}
+      msg.textContent="Uploading "+f.name+"…";try{await guidePut(f,ti.value.trim(),de.value.trim());msg.textContent="✓ Uploaded. It is a draft until you click Release.";ti.value="";de.value="";load()}catch(e){msg.textContent="Upload failed: "+(e.message||e)}};
+    fi.onchange=e=>go(e.target.files[0]);
+    const dz=el("label",{class:"drop",tabindex:0},el("div",{class:"drop-ic"},icon("upload")),el("b",{text:"Drop a PDF guide here, or click to choose"}),el("span",{class:"hint",text:"Only admins see this. New guides start as drafts — readers see them after you click Release."}),fi);
+    dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});dz.addEventListener("dragleave",()=>dz.classList.remove("over"));dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");go(e.dataTransfer.files[0])});
+    v.append(el("div",{class:"card"},el("h3",{text:"Add a guide (admin)"}),el("div",{class:"form invform"},el("label",{},"Title",ti),el("label",{},"Description",de)),dz,msg))}
+  v.append(host);
+  const open=async(g,dl,btn)=>{if(btn)btn.disabled=true;try{const blob=await guideGet(g);if(dl){await saveFile(g.name||"guide.pdf",blob)}else{const u=URL.createObjectURL(blob);const w=window.open(u,"_blank");if(!w)await saveFile(g.name||"guide.pdf",blob);setTimeout(()=>URL.revokeObjectURL(u),120000)}footprint("help",dl?"guide-download":"guide-open",dl?"Guide downloaded":"Guide opened",g.name,null,"")}catch(e){toast("Could not open the guide: "+(e.message||e))}if(btn)btn.disabled=false};
+  const setRel=async(g,on)=>{try{await S.db.doc("guides/"+g.id).update({released:on,relAt:on?new Date().toISOString():null,relBy:on?((S.me&&S.me.name)||""):""});footprint("help",on?"guide-release":"guide-remove",on?"Guide released":"Guide removed from site",g.name,null,"");toast(on?"Released — everyone with access can read it now":"Removed from the site — only admins can see it");load()}catch(e){toast("Failed: "+(e.message||e))}};
+  const load=async()=>{try{const L=await guideList();
+      host.replaceChildren(L.length?el("div",{class:"grid g3 mt guides"},L.map(g=>el("div",{class:"card guide"+(g.released?"":" draft")},
+        el("div",{class:"src-h"},el("i",{class:"gi"},icon("help")),el("b",{text:g.title||g.name}),isA?(g.released?pill("Released","p-ok"):pill("Draft — hidden","p-warn")):null),
+        g.desc?el("p",{class:"hint",text:g.desc}):null,
+        el("div",{class:"hint",text:`${g.name} · ${kb(g.size||0)} · added ${whenTxt(g.at)}${g.by?" by "+g.by:""}`}),
+        isA&&g.released&&g.relAt?el("div",{class:"hint",text:`Released ${whenTxt(g.relAt)}${g.relBy?" by "+g.relBy:""}`}):null,
+        el("div",{class:"filters",style:"margin:10px 0 0"},el("button",{class:"btn sm pri",onclick:e=>open(g,false,e.currentTarget)},icon("help"),"Read"),el("button",{class:"btn sm",onclick:e=>open(g,true,e.currentTarget)},icon("dl"),"Download"),
+          isA?el("button",{class:"btn sm"+(g.released?"":" pri"),onclick:()=>setRel(g,!g.released)},g.released?"Remove from site":"Release"):null,
+          isA?el("button",{class:"btn sm",title:"Delete for good","aria-label":"Delete "+(g.title||g.name),onclick:async()=>{if(!confirm(`Delete “${g.title||g.name}” for good? (Use “Remove from site” to just hide it.)`))return;try{await guideDel(g);toast("Deleted");load()}catch(e){toast("Delete failed: "+(e.message||e))}}},icon("trash")):null))))
+        :el("div",{class:"empty mt"},el("h3",{text:isA?"No guides yet":"No guides released yet"}),el("p",{text:isA?"Upload a PDF above, then click Release.":"Your admin has not released any guides yet."})))}
+    catch(e){host.replaceChildren(el("p",{class:"diff",text:"Could not load guides: "+(e.message||e)+(/permission/i.test(String(e.message||e))?" — publish the latest firestore.rules.":"")}))}};
+  load()};
+document.head.append(el("style",{text:".guides .guide{display:flex;flex-direction:column;gap:6px}.guide .gi{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--acc-soft);color:var(--acc)}.guide .gi svg{width:18px;height:18px}.guide.draft{border-style:dashed;opacity:.85}"}));
 
 /* ================= boot ================= */
 render();
