@@ -2905,13 +2905,14 @@ const invOK=()=>INV_ROLES.includes(S.role);
 IC.products='<path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/>';
 IC.upload='<path d="M12 21V9m0 0-4 4m4-4 4 4M4 3h16"/>';
 IC.trash='<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/>';
+const PORL=k=>POR[k].l+" ("+POR[k].tbl+")";
 const POR={
-  lines:{what:"What was sold",cols:"CNTR · ITEM · QTY · TXTY · PRIC",l:"Sales lines",need:true,test:h=>h.includes("CNTR")&&h.includes("ITEM")&&h.includes("TXTY")&&h.includes("PRIC")},
-  contracts:{what:"When it was sold (contract dates)",cols:"CNTR · DATE · STAT · CUSN",l:"Contracts",need:true,test:h=>h.includes("CNTR")&&h.includes("DATE")&&h.includes("STAT")&&h.includes("CUSN")},
-  items:{what:"Products, stock on hand, cost",cols:"KEY · Name · NUM · QTY · TYPE",l:"Item master",need:true,test:h=>h.includes("KEY")&&h.includes("NUM")&&h.includes("QTY")&&h.includes("TYPE")},
-  pohead:{what:"PO dates and status",cols:"PONumber · Date · VendorNumber · Status",l:"PO headers",need:false,test:h=>h.includes("PONumber")&&h.includes("VendorNumber")&&h.includes("Status")&&!h.includes("ItemNumber")},
-  polines:{what:"Received dates, open orders",cols:"PONumber · ItemNumber · QuantityReceived",l:"PO lines",need:false,test:h=>h.includes("PONumber")&&h.includes("ItemNumber")&&h.includes("QuantityReceived")},
-  vendors:{what:"Vendor names",cols:"VendorNumber · VendorName",l:"Vendors",need:false,test:h=>h.includes("VendorNumber")&&h.includes("VendorName")&&!h.includes("PONumber")}
+  lines:{tbl:"TransactionItems",what:"What was sold",cols:"CNTR · ITEM · QTY · TXTY · PRIC",l:"Sales lines",need:true,test:h=>h.includes("CNTR")&&h.includes("ITEM")&&h.includes("TXTY")&&h.includes("PRIC")},
+  contracts:{tbl:"Transactions",what:"When it was sold (contract dates)",cols:"CNTR · DATE · STAT · CUSN",l:"Contracts",need:true,test:h=>h.includes("CNTR")&&h.includes("DATE")&&h.includes("STAT")&&h.includes("CUSN")},
+  items:{tbl:"ItemFile",what:"Products, stock on hand, cost",cols:"KEY · Name · NUM · QTY · TYPE",l:"Item master",need:true,test:h=>h.includes("KEY")&&h.includes("NUM")&&h.includes("QTY")&&h.includes("TYPE")},
+  pohead:{tbl:"PurchaseOrder",what:"PO dates and status",cols:"PONumber · Date · VendorNumber · Status",l:"PO headers",need:false,test:h=>h.includes("PONumber")&&h.includes("VendorNumber")&&h.includes("Status")&&!h.includes("ItemNumber")},
+  polines:{tbl:"PurchaseOrderDetail",what:"Received dates, open orders",cols:"PONumber · ItemNumber · QuantityReceived",l:"PO lines",need:false,test:h=>h.includes("PONumber")&&h.includes("ItemNumber")&&h.includes("QuantityReceived")},
+  vendors:{tbl:"VendorFile",what:"Vendor names",cols:"VendorNumber · VendorName",l:"Vendors",need:false,test:h=>h.includes("VendorNumber")&&h.includes("VendorName")&&!h.includes("PONumber")}
 };
 const INV_DEF={sl:0.95,review:30,leadDef:9,lookback:12,start:"",lumpy:3,occ:0.25};
 const invSet=()=>Object.assign({},INV_DEF,(S.inv&&S.inv.settings)||{});
@@ -2929,7 +2930,10 @@ const decodeText=buf=>{const u=new Uint8Array(buf);try{return new TextDecoder("u
 function porType(headerLine){const h=headerLine.replace(/^﻿/,"").split(",").map(x=>x.trim().replace(/^"|"$/g,""));for(const k in POR)if(POR[k].test(h))return k;return ""}
 const firstLine=t=>t.slice(0,t.search(/\r?\n/)>0?t.search(/\r?\n/):5000);
 const toObjs=text=>{const r=parseCSV(text.replace(/^﻿/,""));const h=r[0].map(x=>x.trim());return {h,rows:r.slice(1),ix:k=>h.indexOf(k)}};
-const porDate=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*([AP]M))?/i.exec(String(s||"").trim());if(!m)return null;let H=+(m[4]||0);if(m[6]){H=H%12+(/p/i.test(m[6])?12:0)}return new Date(+m[3],+m[1]-1,+m[2],H,+(m[5]||0))};
+async function fileText(name,buf){if(!/\.xlsx?$/i.test(name))return decodeText(buf);const X=await loadXLSX();const wb=X.read(new Uint8Array(buf),{type:"array",cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];return X.utils.sheet_to_csv(ws,{dateNF:"m/d/yyyy h:mm AM/PM",blankrows:false})}
+const porDate0=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*([AP]M))?/i.exec(String(s||"").trim());if(!m)return null;let H=+(m[4]||0);if(m[6]){H=H%12+(/p/i.test(m[6])?12:0)}return new Date(+m[3],+m[1]-1,+m[2],H,+(m[5]||0))};
+const porDate=s=>{s=String(s||"").trim();let d=porDate0(s);if(d)return d;let m=/^(\d{1,2})\/(\d{1,2})\/(\d{2})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?)?$/i.exec(s);if(m){let H=+(m[4]||0);if(m[6])H=H%12+(/p/i.test(m[6])?12:0);return new Date(2000+ +m[3],+m[1]-1,+m[2],H,+(m[5]||0))}
+  m=/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(s);if(m)return new Date(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0));return null};
 const ymOf=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
 const WK0=Date.UTC(2020,0,6);const wkOf=d=>Math.floor((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-WK0)/(7*DAY));
 const median=a=>{a=a.filter(x=>x!=null&&!isNaN(x)).sort((x,y)=>x-y);if(!a.length)return null;const m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2};
@@ -3158,14 +3162,14 @@ INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…
   const handle=async(files,expect)=>{files=[...files];if(!files.length)return;S.invBusy=true;const log=el("div",{class:"card mt"},el("h3",{text:"Uploading"}));out.replaceChildren(log);out.scrollIntoView({behavior:"smooth",block:"nearest"});const line=t=>{const p=el("p",{class:"hint",text:t});log.append(p);return p};
     const por={};
     for(const f of files){const p=line(`${f.name} — reading…`);try{if(f.size>25*1048576)throw new Error("over 25 MB");const buf=await f.arrayBuffer();let pt="";
-        if(/\.(csv|txt)$/i.test(f.name)){const text=decodeText(buf);pt=porType(firstLine(text));
-          if(expect&&pt!==expect)throw new Error(pt?`this is the ${POR[pt].l} export, not ${POR[expect].l}. Use the ${POR[pt].l} slot.`:`this is not the ${POR[expect].l} export (columns don't match). Expected: ${POR[expect].cols}.`);
+        if(/\.(csv|txt|xlsx|xls)$/i.test(f.name)){const text=await fileText(f.name,buf);pt=porType(firstLine(text));
+          if(expect&&pt!==expect)throw new Error(pt?`this is the ${PORL(pt)} export, not ${PORL(expect)}. Use the ${PORL(pt)} slot.`:`this is not the ${PORL(expect)} export (columns don't match). Expected: ${POR[expect].cols}.`);
           if(pt)por[pt]={text,name:f.name,modified:f.lastModified}}
-        else if(expect)throw new Error(`${POR[expect].l} must be the .csv export from Point of Rental.`);
+        else if(expect)throw new Error(`${PORL(expect)} must be a .csv or Excel export from Point of Rental.`);
         p.textContent=`${f.name} — saving to the library…`;await libPut(f,buf,pt);p.textContent=`✓ ${f.name}${pt?" — "+POR[pt].l:""} (${kb(f.size)})`}
       catch(e){p.textContent=`✗ ${f.name} — ${e.message||e}`;p.style.color="var(--bad)"}}
     if(Object.keys(por).length){const need=Object.keys(POR).filter(k=>!por[k]);const p=line("Updating products…");
-      try{const L=await libList();for(const k of need){const f=L.find(x=>x.por===k);if(f){p.textContent=`Using the latest ${POR[k].l} from the library (${f.name})…`;por[k]={text:decodeText((await libGet(f)).buffer),name:f.name,fromLib:true}}}
+      try{const L=await libList();for(const k of need){const f=L.find(x=>x.por===k);if(f){p.textContent=`Using the latest ${POR[k].l} from the library (${f.name})…`;por[k]={text:await fileText(f.name,(await libGet(f)).buffer),name:f.name,fromLib:true}}}
         const miss=Object.keys(POR).filter(k=>POR[k].need&&!por[k]);if(miss.length)throw new Error("still missing: "+miss.map(k=>POR[k].l).join(", ")+". Upload those in their slots.");
         await sleep(30);const T={};for(const k in por)T[k]=por[k].text;const res=crunch(T);
         const exp=Object.values(por).filter(x=>!x.fromLib).map(x=>{const m=/(\d{4})\.(\d{2})\.(\d{2})/.exec(x.name);return m?`${m[1]}-${m[2]}-${m[3]}`:x.modified?new Date(x.modified).toISOString().slice(0,10):null}).filter(Boolean).sort().pop();
@@ -3178,25 +3182,25 @@ INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…
   // six Point of Rental slots
   const up=S.invUp||{};
   const slot=([k,x])=>{const u=up[k];const done=u&&new Date(u.at)>=ws;const weekly=WEEKLY_POR.includes(k);
-    const fi=el("input",{type:"file",accept:".csv,text/csv",hidden:true,onchange:e=>handle(e.target.files,k)});
-    const c=el("div",{class:"card src slot"+(done?" done":"")},el("div",{class:"src-h"},el("span",{class:"dot "+(u?(done?"ok":"warn"):"")}),el("b",{text:x.l}),
+    const fi=el("input",{type:"file",accept:".csv,.xlsx,.xls,text/csv",hidden:true,onchange:e=>handle(e.target.files,k)});
+    const c=el("div",{class:"card src slot"+(done?" done":"")},el("div",{class:"src-h"},el("span",{class:"dot "+(u?(done?"ok":"warn"):"")}),el("b",{text:x.l+" ("+x.tbl+")"}),
         u?(done?el("span",{class:"pill p-ok",text:"✓ uploaded"}):el("span",{class:"pill "+(weekly?"p-bad":"p-idle"),text:weekly?"due this week":"older"})):el("span",{class:"pill p-bad",text:"not uploaded"})),
       el("div",{},pill(x.need?"Required":"Optional · lead time / vendor",x.need?"p-warn":"p-acc")),
       el("div",{class:"hint",text:x.what}),el("div",{class:"hint mono",style:"font-size:11px",text:x.cols}),
       u?el("div",{class:"hint",text:`${u.file} · ${kb(u.size||0)}`}):null,u?el("div",{class:"hint",text:`Uploaded ${whenTxt(u.at)}${u.by?" by "+u.by:""}`}):el("div",{class:"hint",text:"Not uploaded yet"}),
-      el("label",{class:"btn sm pri slot-btn"},icon("upload"),"Upload "+x.l,fi));
+      el("label",{class:"btn sm pri slot-btn"},icon("upload"),"Upload "+x.tbl,fi));
     c.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over")});c.addEventListener("dragleave",()=>c.classList.remove("over"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");handle(e.dataTransfer.files,k)});return c};
   const req=Object.entries(POR).filter(([,x])=>x.need),opt=Object.entries(POR).filter(([,x])=>!x.need);
   b.append(el("h3",{class:"mt",text:"Point of Rental exports — required"}),el("div",{class:"grid g3 slots"},req.map(slot)),
     el("h3",{class:"mt",text:"Point of Rental exports — optional (real lead times and vendor names)"}),el("div",{class:"grid g3 slots"},opt.map(slot)),
-    el("p",{class:"hint mt",text:"Each slot checks the file's column headings, so the file name doesn't matter. Upload only what changed — the dashboard re-uses the latest copy of the others. Sales lines, Contracts and Item master are due every Monday."}),out);
+    el("p",{class:"hint mt",text:"Export each table from Point of Rental (Database Management → Database Table Viewer) as CSV or Excel. Each slot checks the file's column headings, so the file name doesn't matter. Upload only what changed — the dashboard re-uses the latest copy of the others. Sales lines, Contracts and Item master are due every Monday."}),out);
   // other files
   const fileIn=el("input",{type:"file",multiple:true,hidden:true,onchange:e=>handle(e.target.files)});
   const dz=el("label",{class:"drop mt",tabindex:0},el("div",{class:"drop-ic"},icon("upload")),el("b",{text:"Other files — drop here or click to choose"}),el("span",{class:"hint",text:"Price lists, PDFs, Excel files, anything the team needs. Stored here for admins and managers to download. Max 25 MB per file."}),fileIn);
   dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});dz.addEventListener("dragleave",()=>dz.classList.remove("over"));dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");handle(e.dataTransfer.files)});
   const loadList=async()=>{try{const L=await libList();const latest={};L.forEach(f=>{if(f.por&&!latest[f.por])latest[f.por]=f.id});
       host.replaceChildren(el("div",{class:"card"},el("h3",{text:`File library (${fmt(L.length)})`}),L.length?table([
-        {l:"File",v:f=>f.name},{l:"Kind",v:f=>f.por?POR[f.por].l:"Other",f:f=>f.por?pill(POR[f.por].l+(latest[f.por]===f.id?" · in use":""),latest[f.por]===f.id?"p-ok":"p-idle"):"Other"},
+        {l:"File",v:f=>f.name},{l:"Kind",v:f=>f.por?POR[f.por].l:"Other",f:f=>f.por?pill(PORL(f.por)+(latest[f.por]===f.id?" · in use":""),latest[f.por]===f.id?"p-ok":"p-idle"):"Other"},
         {l:"Size",v:f=>f.size,f:f=>kb(f.size),num:1},{l:"Uploaded",v:f=>f.at,f:f=>whenTxt(f.at)},{l:"By",v:f=>f.by||""},
         {l:"",v:f=>0,f:f=>el("span",{class:"rowbtns"},el("button",{class:"btn sm",onclick:async e=>{const bt=e.currentTarget;bt.disabled=true;try{const u=await libGet(f);await saveFile(f.name,new Blob([u],{type:f.mime||"application/octet-stream"}));footprint("products","download","Downloaded",f.name,null,kb(f.size))}catch(x){toast("Download failed: "+(x.message||x))}bt.disabled=false}},icon("dl"),"Download"),
           el("button",{class:"btn sm",title:"Delete","aria-label":"Delete "+f.name,onclick:async()=>{if(!confirm(`Delete ${f.name} from the library?`))return;try{await libDel(f);footprint("products","delete","Deleted",f.name,null,"");toast("Deleted");loadList()}catch(x){toast("Delete failed: "+(x.message||x))}}},icon("trash")))}],L,{sort:3,dir:-1})
