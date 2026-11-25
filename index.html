@@ -3065,11 +3065,11 @@ INV_TABS.overview=b=>{const R=calcRows(),sold=R.filter(r=>r.sold>0);
   const units=sold.reduce((a,r)=>a+r.sold,0),rev=sold.reduce((a,r)=>a+r.amt,0),re=R.filter(r=>r.status==="REORDER"||r.status==="OUT OF STOCK"),out=R.filter(r=>r.status==="OUT OF STOCK"),over=R.filter(r=>r.status==="Above max"),dead=R.filter(r=>r.status==="No sales");
   const go=t=>()=>{S.invTab=t;render(true)};
   b.append(el("p",{class:"hint",text:"Window: "+winText()}),el("div",{class:"kpis mt"},
-    kpi({label:"Products sold",value:sold.length,note:`${fmt(units)} units in the window`,ic:"products",onClick:go("best")}),
-    kpi({label:"Sales",value:Math.round(rev),fmtFn:money,note:"Before tax, stock products",ic:"money",cls:"solid",onClick:go("monthly")}),
-    kpi({label:"Need to order now",value:re.length,note:`${fmt(out.length)} out of stock · ${money(re.reduce((a,r)=>a+(r.val||0),0))}`,ic:"alerts",cls:re.length?"alarm":"",onClick:go("order")}),
-    kpi({label:"Above max",value:over.length,note:`${money(over.reduce((a,r)=>a+Math.max(0,r.oh-r.max)*(r.c||0),0))} tied up over max`,ic:"power",cls:"orange",onClick:go("minmax")}),
-    kpi({label:"No sales in window",value:dead.length,note:`${money(dead.reduce((a,r)=>a+(r.ohVal||0),0))} of stock on hand`,ic:"x",onClick:go("minmax")})));
+    kpi({label:"Products sold",value:sold.length,note:`${fmt(units)} units in the window`,ic:"products",onClick:()=>invDrill("Products sold",`${fmt(sold.length)} products sold in the window · ${fmt(units)} units`,sold,"sold")}),
+    kpi({label:"Sales",value:Math.round(rev),fmtFn:money,note:"Before tax, stock products",ic:"money",cls:"solid",onClick:()=>invDrill("Sales by product",`${money(rev)} from ${fmt(sold.length)} products, before tax`,sold,"sales")}),
+    kpi({label:"Need to order now",value:re.length,note:`${fmt(out.length)} out of stock · ${money(re.reduce((a,r)=>a+(r.val||0),0))}`,ic:"alerts",cls:re.length?"alarm":"",onClick:()=>invDrill("Need to order now",`${fmt(re.length)} products at or below MIN · ${fmt(out.length)} out of stock`,re,"order")}),
+    kpi({label:"Above max",value:over.length,note:`${money(over.reduce((a,r)=>a+Math.max(0,r.oh-r.max)*(r.c||0),0))} tied up over max`,ic:"power",cls:"orange",onClick:()=>invDrill("Above max",`${fmt(over.length)} products with more on hand than MAX`,over,"over")}),
+    kpi({label:"No sales in window",value:dead.length,note:`${money(dead.reduce((a,r)=>a+(r.ohVal||0),0))} of stock on hand`,ic:"x",onClick:()=>invDrill("No sales in window",`${fmt(dead.length)} products in stock that did not sell in the window`,dead,"dead")})));
   const M=invMonths();b.append(el("div",{class:"card mt"},el("h3",{text:"Sales by month ($ bars · units line)"}),colChart(M.map(m=>({label:mon(m.ym),v:Math.round(m.amt),l:m.qty,dim:m.partial})),{fmtV:v=>v>=1000?"$"+Math.round(v/1000)+"k":money(v),line:true})));
   const top=(k,f)=>[...sold].sort((a,c)=>c[k]-a[k]).slice(0,10).map(r=>({l:r.n.slice(0,34),v:Math.round(r[k]),title:r.k,onClick:()=>invItem(r)}));
   b.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"Top 10 by units"}),hbars(top("sold"))),el("div",{class:"card"},el("h3",{text:"Top 10 by sales $"}),hbars(top("amt")))));
@@ -3121,9 +3121,9 @@ INV_TABS.best=b=>{const P=calcRows().filter(r=>r.m),M=invMonths().map(m=>m.ym);l
         table([{l:"#",v:x=>x.rank,num:1},{l:"Product",v:x=>x.r.k},{l:"Description",v:x=>x.r.n},{l:"Units",v:x=>x.sold,num:1},{l:"Sales $",v:x=>x.amt,f:x=>money(x.amt),num:1},{l:"Orders",v:x=>x.ord,num:1},{l:"On hand",v:x=>x.r.oh,num:1},{l:"Class",v:x=>x.abc,f:x=>pill(x.abc,x.abc==="A"?"p-ok":x.abc==="B"?"p-warn":"p-idle")},{l:"Status",v:x=>x.r.status,f:x=>pill(x.r.status,PSTAT[x.r.status])}],rows,{sort:0,dir:1,onRow:x=>invItem(x.r)})))};
   b.append(el("div",{class:"filters mt"},ps,bs,expBtn("Best-sellers",["Rank","Product","Description","Units","Sales $","Orders","On hand"],()=>{const t=[];host.querySelectorAll("tbody tr").forEach(tr=>t.push([...tr.children].slice(0,7).map(td=>td.textContent)));return t})),host);fill()};
 
-function invTable(rows,kind){const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Vendor",v:r=>r.v},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"MIN",v:r=>r.min,num:1},{l:"MAX",v:r=>r.max,num:1},
+function invTable(rows,kind,lim){const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Vendor",v:r=>r.v},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"MIN",v:r=>r.min,num:1},{l:"MAX",v:r=>r.max,num:1},
   {l:"Order qty",v:r=>r.order,f:r=>r.order?el("b",{text:fmt(r.order)}):"0",num:1},{l:"Order $",v:r=>r.val||0,f:r=>r.val!=null?money(r.val):"—",num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
-  return table(cols,rows,{sort:kind==="order"?8:9,dir:-1,onRow:invItem})}
+  return table(cols,rows,{sort:kind==="order"?8:9,dir:-1,onRow:invItem,limit:lim||300})}
 const MM_HEAD=["Product","Description","Type","Vendor","On hand","On order","Sold in window","Sales $ in window","Orders","Weeks with sales","Weekly std dev","Lead time days","Lead time from","Avg daily demand","Safety stock","MIN","MAX","Order qty","Unit cost","Order $","Status","Pattern","Last sale"];
 const mmRow=r=>[r.k,r.n,r.t,r.v,r.oh,r.oo,r.sold,Math.round(r.amt*100)/100,r.ord,r.wks,Math.round(r.sd*100)/100,Math.round(r.ltU*10)/10,r.lts?r.lts+" PO history":"default",Math.round(r.daily*1000)/1000,Math.round(r.ss*10)/10,r.min,r.max,r.order,r.c!=null?Math.round(r.c*100)/100:"",r.val!=null?Math.round(r.val*100)/100:"",r.status,r.pat,r.ls||""];
 
@@ -3149,6 +3149,27 @@ INV_TABS.minmax=b=>{const R=calcRows();let st="all",q="";const host=el("div");co
     el("p",{class:"hint",text:"Window: "+winText()+". Lead time is the median PO-to-received days for the item, else its vendor, else the default (*). Change these in Settings."})),
     el("div",{class:"filters mt"},ss,el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Min-Max",MM_HEAD,()=>list().map(mmRow))),host);fill()};
 
+
+/* KPI drill-down: exact product list behind each Products overview number */
+function invDrill(title,sub,rows,kind){const host=el("div");let q="";
+  const P=c=>c,num=(l,v,f)=>({l,v,f,num:1});
+  const base=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Vendor",v:r=>r.v}];
+  const C={sold:[...base,num("Units sold",r=>r.sold),num("Sales $",r=>r.amt,r=>money(r.amt)),num("Orders",r=>r.ord),num("On hand",r=>r.oh),{l:"Last sale",v:r=>r.ls||""},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}],
+    sales:[...base,num("Sales $",r=>r.amt,r=>money(r.amt)),num("Units sold",r=>r.sold),num("Avg price",r=>r.sold?r.amt/r.sold:0,r=>r.sold?money(r.amt/r.sold):"—"),num("Orders",r=>r.ord),{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}],
+    order:null,
+    over:[...base,num("On hand",r=>r.oh),num("MAX",r=>r.max),num("Over max",r=>r.oh-r.max),num("$ over max",r=>(r.oh-r.max)*(r.c||0),r=>r.c!=null?money((r.oh-r.max)*r.c):"—"),num("Sold",r=>r.sold),{l:"Pattern",v:r=>r.pat}],
+    dead:[...base,num("On hand",r=>r.oh),num("Unit cost",r=>r.c||0,r=>r.c!=null?money(r.c):"—"),num("Stock $",r=>r.ohVal||0,r=>r.ohVal!=null?money(r.ohVal):"—"),{l:"Last sale",v:r=>r.ls||"",f:r=>r.ls||"never"}]};
+  const sortCol={sold:3,sales:3,over:6,dead:5};
+  const list=()=>rows.filter(r=>!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q));
+  const cnt=el("b");
+  const fill=()=>{const L=list();cnt.textContent=q?`${fmt(L.length)} of ${fmt(rows.length)} products`:`${fmt(rows.length)} products`;host.replaceChildren(kind==="order"?invTable(L,"order",5000):table(C[kind],L,{sort:sortCol[kind],dir:-1,onRow:r=>invItem(r),limit:5000}))};
+  const d=el("div",{class:"fmt-scrim",onclick:e=>{if(e.target===d)close()}});const close=()=>{d.remove();document.removeEventListener("keydown",kd)};const kd=e=>{if(e.key==="Escape")close()};document.addEventListener("keydown",kd);
+  d.append(el("div",{class:"card invpop invdrill",role:"dialog","aria-label":title},
+    el("div",{class:"filters",style:"margin:0 0 4px"},el("h3",{style:"flex:1;margin:0",text:title}),el("button",{class:"ibtn","aria-label":"Close",onclick:close},icon("x"))),
+    el("p",{class:"hint",text:sub+" · "+winText()}),
+    el("div",{class:"filters"},cnt,el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn(title.replace(/\s+/g,"-"),MM_HEAD,()=>list().map(mmRow))),host));
+  document.body.append(d);fill()}
+document.head.append(el("style",{text:".card.invpop.invdrill{width:min(1200px,calc(100vw - 32px))}.invdrill .tbl-wrap{max-height:62vh;overflow:auto}"}));
 function invItem(r){const M=invMonths().map(m=>m.ym).slice(-12);const d=el("div",{class:"fmt-scrim",onclick:e=>{if(e.target===d)d.remove()}});
   d.append(el("div",{class:"card invpop"},el("div",{class:"filters",style:"margin:0 0 6px"},el("h3",{style:"flex:1;margin:0",text:r.n}),el("button",{class:"ibtn","aria-label":"Close",onclick:()=>d.remove()},icon("x"))),
     el("p",{class:"hint",text:`${r.k} · ${r.v||"no vendor"} · type ${r.t||"—"}${r.ls?" · last sale "+r.ls:""}`}),
