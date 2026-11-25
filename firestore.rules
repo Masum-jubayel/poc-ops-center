@@ -10,9 +10,17 @@ service cloud.firestore {
     function listed() { return signedIn() && exists(/databases/$(database)/documents/access/roles)
                           && rolesDoc().users.keys().hasAny([request.auth.uid])
                           && rolesDoc().users[request.auth.uid].get('disabled', false) != true; }
-    function hasAccess() { return isOwner() || listed(); }
-    function isAdmin()   { return isOwner() || (listed() && rolesDoc().users[request.auth.uid].role == 'admin'); }
-    function isManager() { return isAdmin() || (listed() && rolesDoc().users[request.auth.uid].role == 'manager'); }
+    // Invites: an admin can give access to an email before that person has ever signed in.
+    function myEmail()   { return request.auth.token.email != null ? request.auth.token.email.lower() : ''; }
+    function invited()   { return signedIn() && request.auth.token.email_verified == true && myEmail() != ''
+                          && exists(/databases/$(database)/documents/access/roles)
+                          && rolesDoc().get('invites', {}).keys().hasAny([myEmail()])
+                          && !rolesDoc().users.keys().hasAny([request.auth.uid]); }
+    function invRole()   { return rolesDoc().invites[myEmail()].role; }
+    function hasAccess() { return isOwner() || listed() || invited(); }
+    function isAdmin()   { return isOwner() || (listed() && rolesDoc().users[request.auth.uid].role == 'admin') || (invited() && invRole() == 'admin'); }
+    function isManager() { return isAdmin() || (listed() && rolesDoc().users[request.auth.uid].role == 'manager') || (invited() && invRole() == 'manager'); }
+    function privateColl(c) { return c in ['inv', 'invfiles', 'invchunks', 'uplog']; }
 
     // Everyone who signs in may create their own profile (so admins can find them) and read the access list.
     match /profiles/{uid}  { allow read: if signedIn(); allow write: if signedIn() && request.auth.uid == uid; }
@@ -22,7 +30,18 @@ service cloud.firestore {
     // Managers (and admins) can record actions and edit fleet maps.
     match /actions/{id}    { allow read: if hasAccess(); allow write: if isManager(); }
     match /fleetmap/{id}   { allow read: if hasAccess(); allow write: if isManager(); }
+    // Weekly uploads: managers (and admins) may load Inrico / Jasper / Simplex / Hologram data.
+    match /companies/{id}  { allow write: if isManager(); }
+    match /sims/{id}       { allow write: if isManager(); }
+    match /meta/sources    { allow write: if isManager(); }
+    match /history/{id}    { allow write: if isManager(); }
+    // Upload footprint, Products & inventory, file library: admins and managers only.
+    match /uplog/{id}      { allow read, write: if isManager(); }
+    match /inv/{id}        { allow read, write: if isManager(); }
+    match /invfiles/{id}   { allow read, write: if isManager(); }
+    match /invchunks/{id}  { allow read, write: if isManager(); }
     // Everything else (companies, sims, settings, history, meta, log, system): read with access, write admins only.
-    match /{coll}/{id}     { allow read: if hasAccess(); allow write: if isAdmin(); }
+    // The private collections above are excluded here, because any rule that allows access wins.
+    match /{coll}/{id}     { allow read: if hasAccess() && !privateColl(coll); allow write: if isAdmin() && !privateColl(coll); }
   }
 }

@@ -784,7 +784,7 @@ let rebuildT;
 function rebuild(){clearTimeout(rebuildT);rebuildT=setTimeout(()=>{if(!S.ready.c||!S.ready.s||!S.gateChecked||!S.role){render();return}S.model=buildModel();renderFresh();buildRail();render(true)},120)}
 async function paintMe(){
   const box=$("#me");const me=S.me;if(!me){box.hidden=true;return}
-  box.hidden=false;box.replaceChildren(el("img",{src:me.avatarUrl,alt:""}),el("div",{},el("b",{text:me.name||"Signed in"}),el("span",{text:S.role?(S.role+(S.agent?" · "+S.agent:"")):"no access"})));
+  box.hidden=false;box.replaceChildren(el("img",{src:me.avatarUrl,alt:""}),el("div",{},el("b",{text:me.name||"Signed in"}),el("span",{text:me.isOwner?"super admin":S.role?(S.role+(S.agent?" · "+S.agent:"")):"no access"})));
 }
 function paintLogo(){
   const id=(S.settings||{}).logoAsset;const b=$("#rail .brand");if(!b){const t=$("#toplogo");if(t){t.hidden=!id;t.replaceChildren(id?el("img",{src:aurl(id),alt:"Expert Mobile Communications"}):"")}return}
@@ -821,10 +821,10 @@ async function runImport(m){
   if(!m||m.type!=="poc-import"||m.v!==1||!m.data){toast("That clipboard text is not platform data.");return}
   if(S.importing){toast("An import is already running.");return}
   if(!S.db){toast("Open this page signed in to save data.");return}
-  if(S.role!=="admin"){toast("Only admins can load new platform data.");return}
+  if(!invOK()){toast("Only admins and managers can load new platform data.");return}
   if(S.lastImportId===m.id){toast("This data was already saved.");return}
   S.importing={label:"Starting",done:0,total:1};render(true);
-  try{const counts=await importData(m);S.lastImportId=m.id;S.lastImport={at:new Date().toISOString(),counts,ok:true};toast("Database updated: "+Object.entries(counts).map(([k,v])=>k+" "+v).join(" · "),7000);logAct("import",(m.via||"collector")+" · "+Object.entries(counts).map(([k,v])=>k+" "+v).join(" · "))}
+  try{const counts=await importData(m);S.lastImportId=m.id;S.lastImport={at:new Date().toISOString(),counts,ok:true};toast("Database updated: "+Object.entries(counts).map(([k,v])=>k+" "+v).join(" · "),7000);for(const k of ["inrico","jasper","simplex","hologram"]){const n=k==="inrico"?counts.devices:counts[k];if(n!=null)footprint("datahub",k,DH_LABEL[k],m.file||(m.via==="manual"?"manual upload":"collector paste"),n,m.merge===false?"replace":"merge")}logAct("import",(m.via||"collector")+" · "+Object.entries(counts).map(([k,v])=>k+" "+v).join(" · "))}
   catch(err){S.lastImport={at:new Date().toISOString(),ok:false,error:(err&&(err.code||err.message))||String(err)};toast("Import stopped: "+((err&&err.message)||err),8000)}
   finally{S.importing=null;render(true)}
 }
@@ -845,8 +845,8 @@ async function importData(m){
   S.importing={label:"Saving",done:0,total:jobs.length};render(true);
   let i=0;const run=async()=>{while(i<jobs.length){const j=jobs[i++];await j();S.importing.done++;updProg()}};
   await Promise.all([run(),run(),run(),run()]);
-  const metaUpd={};for(const k of Object.keys(counts))if(k!=="devices"&&k!=="companies")metaUpd[k]={at,count:counts[k],via:m.via||"collector"};
-  if(counts.devices!=null)metaUpd.inrico={at,count:counts.devices,companies:counts.companies,via:m.via||"collector"};
+  const metaUpd={};const by=(S.me&&S.me.name)||"",upAt=new Date().toISOString();for(const k of Object.keys(counts))if(k!=="devices"&&k!=="companies")metaUpd[k]={at,count:counts[k],via:m.via||"collector",by,upAt,file:m.file||""};
+  if(counts.devices!=null)metaUpd.inrico={at,count:counts.devices,companies:counts.companies,via:m.via||"collector",by,upAt,file:m.file||""};
   if(m.merge&&counts.devices!=null){const all=(await db.collection("companies").limit(1000).get()).docs.map(d=>d.data());metaUpd.inrico.count=all.reduce((a,c)=>a+(c.devices||[]).length,0);metaUpd.inrico.companies=all.length}
   const mref=db.doc("meta/sources");const cur=await mref.get();await w(mref,r=>cur.exists?r.update(metaUpd):r.set(metaUpd));
   await sleep(1500);
@@ -1082,9 +1082,10 @@ const DR={
 };
 
 /* ================= rail / router / header ================= */
-const NAV=[["overview","Overview"],["matching","Matching"],["status","Active / Off"],["licences","Licences"],["alerts","Alerts"],["companies","Companies"],["devices","Devices"],["sims","SIMs"],["compare","Compare"],["users","Users"],["admin","Admin"],["data","Data hub"]];
+const NAV=[["overview","Overview"],["matching","Matching"],["status","Active / Off"],["licences","Licences"],["alerts","Alerts"],["companies","Companies"],["devices","Devices"],["sims","SIMs"],["compare","Compare"],["products","Products"],["users","Users"],["admin","Admin"],["data","Data hub"]];
 function buildRail(){const r=$("#rail");const cur=S.view;r.replaceChildren(el("div",{class:"brand"}));paintLogo();
-  for(const [k,l] of NAV){if((k==="users"||k==="admin")&&S.role!=="admin")continue;const a=el("a",{href:"#"+k,class:cur===k||(k==="companies"&&cur==="company")?"on":"","aria-label":l},icon(k),l);
+  for(const [k,l] of NAV){if((k==="users"||k==="admin")&&S.role!=="admin")continue;if(k==="products"&&!invOK())continue;const a=el("a",{href:"#"+k,class:cur===k||(k==="companies"&&cur==="company")?"on":"","aria-label":l},icon(k),l);
+    if((k==="data"||k==="products")&&invOK()){const n=dueList().filter(x=>x.area===k).length;if(n)a.append(el("span",{class:"badge",title:n+" weekly upload(s) still needed",text:n}))}
     if(k==="alerts"&&S.model){const h=S.model.alerts.filter(a=>a.sev==="high").length;if(h)a.append(el("span",{class:"badge",text:h>999?"999+":h}))}r.append(a)}r.append(el("div",{class:"rcredit",title:"Powered by "+creditText()},el("span",{text:"Powered by"}),el("b",{text:creditText()})))}
 function renderFresh(){const f=$("#fresh");f.textContent="";const now=Date.now();
   for(const [k,l] of [["inrico","Inrico"],["jasper","Jasper"],["simplex","Simplex"],["hologram","Hologram"]]){const m=S.meta&&S.meta[k];let c="",t="no data";if(m&&m.at){const age=(now-new Date(m.at))/DAY;c=age<=8?"ok":age<=15?"warn":"bad";t=new Date(m.at).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}
@@ -1099,10 +1100,12 @@ function render(keep){
   buildRail();
   const v=el("div",{class:"view"});
   if(S.importing)v.append(el("div",{class:"card",style:"margin-bottom:14px"},el("h3",{text:"Saving new platform data"}),el("div",{class:"prog"},el("i",{id:"impProg",style:`width:${pct(S.importing.done,S.importing.total)}%`})),el("div",{class:"muted",id:"impTxt",text:`${S.importing.label} ${S.importing.done} of ${S.importing.total}`})));
-  if(!S.model&&r.view!=="data"&&r.view!=="users"){v.append(el("div",{class:"empty"},el("h3",{text:"Preparing the dashboard…"})))}
+  if(r.view==="products"){VIEWS.products(v,r)}
+  else if(!S.model&&r.view!=="data"&&r.view!=="users"){v.append(el("div",{class:"empty"},el("h3",{text:"Preparing the dashboard…"})))}
   else if(!S.model||!S.model.devices.length&&!S.model.simList.length){if(r.view==="data"||r.view==="users")VIEWS[r.view](v,r);else v.append(el("div",{class:"empty"},el("h3",{text:"No data yet"}),el("p",{text:"Run the weekly refresh to fill the database."}),el("a",{href:"#data",text:"How the refresh works"})))}
   else{if(r.view==="users"&&S.role!=="admin")location.hash="overview";else (VIEWS[r.view]||VIEWS.overview)(v,r)}
   const bn=(S.settings||{}).banner;if(bn&&bn.on&&bn.text)v.prepend(el("div",{class:"banner "+(bn.level||"info"),role:"status"},icon(bn.level==="info"?"online":"alerts"),bn.text));
+  if(invOK()){invUpInit();const due=dueList();if(due.length)v.prepend(dueBanner(due))}
   v.append(creditNode());enhance(v,r.view);centerWidgets(v);stagger(v);if(keep){v.style.animation="none";v.querySelectorAll(".card,.kpi").forEach(n=>n.style.animation="none")}main.replaceChildren(v);if(keep)window.scrollTo({top:y});
 }
 function gate(){const me=S.me||{};return el("div",{class:"gate card"},el("div",{style:"display:grid;place-items:center;margin-bottom:16px"},el("div",{class:"lring"},el("i"),el("i"),circleNode(72))),el("h2",{style:"font:700 20px var(--f-hud);letter-spacing:.08em;text-transform:uppercase",text:"Access not granted yet"}),
@@ -1526,9 +1529,9 @@ VIEWS.data=v=>{
   v.append(secH("Data hub","Upload platform files by hand, export everything, back up and restore the database."));
   // sources
   const rows=[["inrico","Inrico","Companies, devices, licences"],["jasper","Telus Jasper","SIM status, customer, plan"],["simplex","Simplex","SIM status, company"],["hologram","Hologram","SIM status, name"]];
-  v.append(el("div",{class:"grid g4"},rows.map(([k,l,d])=>{const mm=S.meta[k]||{};const age=mm.at?(Date.now()-new Date(mm.at))/DAY:null;return el("div",{class:"card src"},el("div",{class:"src-h"},el("span",{class:"dot "+(age==null?"":age<=8?"ok":age<=15?"warn":"bad")}),el("b",{text:l}),mm.via?el("span",{class:"pill p-acc",text:mm.via}):null),el("div",{class:"big mono",text:mm.count!=null?fmt(mm.count):"—"}),el("div",{class:"hint",text:d}),el("div",{class:"hint",text:mm.at?"Updated "+new Date(mm.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"No data yet"}))})));
-  // manual upload
-  if(isA){const up=el("div",{class:"card mt"},el("h3",{text:"Manual data upload"}));const body=el("div");
+  v.append(dataSlots(rows));
+  // manual upload (auto-detect / backup restore)
+  if(isA){const up=el("div",{class:"card mt"},el("h3",{text:"Other upload: restore a backup or auto-detect a file"}));const body=el("div");
     const fileIn=el("input",{type:"file",accept:".xlsx,.xls,.csv,.json",hidden:true});
     const dz=el("label",{class:"drop",tabindex:0},el("div",{class:"drop-ic"},icon("dl")),el("b",{text:"Drop an Excel or CSV file here, or click to choose"}),el("span",{class:"hint",text:"Inrico device export · Jasper SIM export · Simplex SIM list · Hologram SIM list · or a POC backup (.json)"}),fileIn);
     const handle=async f=>{if(!f)return;body.replaceChildren(loaderNode("Reading "+f.name+"…"));
@@ -1552,8 +1555,8 @@ VIEWS.data=v=>{
     el("div",{class:"card"},el("h3",{text:"Rules"}),kvs([["Device active","Inrico licence end is in the future; Paused / Expired = deactivated."],["SIM active","Jasper Activated · Simplex ACTIVATED · Hologram LIVE."],["Matching","Inrico SIM (trailing f removed) = carrier ICCID; first 18 digits when lengths differ."],["Expiring",`Licence ends within ${settings().expiryDays} days.`]]))));
   if(isA)v.append(el("div",{class:"paste mt",tabindex:"0"},el("h3",{text:"Receive collector data"}),el("p",{class:"hint",text:"After a platform's “Copy data” button, click here and press Ctrl+V."}),S.lastImport?el("p",{class:"muted",text:(S.lastImport.ok?"Last import saved ":"Last import failed ")+new Date(S.lastImport.at).toLocaleTimeString("en-CA")+(S.lastImport.ok?": "+Object.entries(S.lastImport.counts).map(([k,x])=>k+" "+x).join(" · "):": "+S.lastImport.error)}):null));
 };
-function mapper(body,p,fname){
-  const st={type:guessType(p.headers),merge:true,company:""};st.map=guessMap(st.type,p.headers);
+function mapper(body,p,fname,force){
+  const st={type:force||guessType(p.headers),merge:true,company:""};st.map=guessMap(st.type,p.headers);
   const draw=()=>{const sp=SPEC[st.type];
     const ts=el("select",{class:"inp",onchange:e=>{st.type=e.target.value;st.map=guessMap(st.type,p.headers);draw()}},Object.entries(SPEC).map(([k,s])=>el("option",{value:k,selected:k===st.type},s.l)));
     const mode=el("select",{class:"inp",onchange:e=>{st.merge=e.target.value==="merge"}},el("option",{value:"merge",selected:st.merge},"Merge: update + add, keep the rest"),el("option",{value:"replace",selected:!st.merge},st.type==="inrico"?"Replace: this file becomes the full company list":"Replace: this file becomes the full "+PROV[st.type]+" list"));
@@ -1568,7 +1571,7 @@ function mapper(body,p,fname){
       const data=buildPayload(st.type,p,st.map,st);const n=st.type==="inrico"?data.companies.reduce((a,c)=>a+c.devices.length,0):data[st.type].length;
       if(!n){toast("No usable rows found.");return}
       if(!st.merge&&!confirm(`Replace all ${st.type==="inrico"?"companies":PROV[st.type]+" SIMs"} with the ${fmt(n)} rows in ${fname}?`))return;
-      body.textContent="";await runImport({type:"poc-import",v:1,id:"manual-"+Date.now(),source:st.type,via:"manual",merge:st.merge,collectedAt:new Date().toISOString(),data});logAct("upload",`${fname} · ${SPEC[st.type].l} · ${fmt(n)} rows · ${st.merge?"merge":"replace"}`)}},icon("check"),"Import "+fmt(p.rows.length)+" rows");
+      body.textContent="";await runImport({type:"poc-import",v:1,id:"manual-"+Date.now(),source:st.type,via:"manual",file:fname,merge:st.merge,collectedAt:new Date().toISOString(),data});logAct("upload",`${fname} · ${SPEC[st.type].l} · ${fmt(n)} rows · ${st.merge?"merge":"replace"}`)}},icon("check"),"Import "+fmt(p.rows.length)+" rows");
     body.replaceChildren(el("div",{class:"mapbox"},el("div",{class:"filters"},el("span",{class:"chip",text:fname+" · "+p.sheet+" · "+fmt(p.rows.length)+" rows"}),ts,mode),el("p",{class:"hint",text:"Check that each field points to the right column. Fields with * are required."}),grid,coSel,el("h3",{style:"margin-top:14px",text:"Preview"}),pv,el("div",{class:"filters mt"},go,el("button",{class:"btn",onclick:()=>body.textContent=""},"Cancel"))));prev()};
   draw()}
 
@@ -1806,7 +1809,7 @@ function importHistory(){const box=el("div",{class:"feed"},el("p",{class:"hint",
   if(S.db)S.db.collection("log").orderBy("at","desc").limit(150).get().then(s=>{const L=s.docs.map(d=>d.data()).filter(x=>/import|upload|restore|download|backup/.test(x.what)).slice(0,25);box.replaceChildren(...(L.length?L.map(x=>el("div",{class:"al low",style:"cursor:default"},el("span",{class:"bar"}),el("div",{},el("div",{class:"t",text:x.what}),el("div",{class:"d",text:x.detail})),el("div",{class:"c",style:"color:var(--muted)",text:new Date(x.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}))):[el("p",{class:"hint",text:"No imports or downloads recorded yet."})]))}).catch(()=>box.replaceChildren(el("p",{class:"hint",text:"History unavailable."})));
   return el("div",{class:"card mt"},el("h3",{text:"Import & download history"}),box)}
 const baseData=VIEWS.data;
-VIEWS.data=v=>{baseData(v);if(!S.model)return;const first=v.querySelector(".grid.g4");const after=first?first.nextSibling:null;const add=[exportBuilder(),quickDownloads(),dataQuality()];add.forEach(n=>v.insertBefore(n,after));if(S.role==="admin")v.append(importHistory())};
+VIEWS.data=v=>{baseData(v);if(!S.model)return;const first=v.querySelector(".grid.g4");const after=first?first.nextSibling:null;const add=[exportBuilder(),quickDownloads(),dataQuality()];add.forEach(n=>v.insertBefore(n,after));if(S.role==="admin")v.append(importHistory());if(invOK())v.append(uploadHistory("datahub","Upload footprint — who uploaded what"))};
 
 /* ================= users view ================= */
 const ROLE_INFO={admin:"Everything, including users, settings, uploads and clean-up",manager:"View, export and record actions on devices and SIMs",viewer:"View and export",agent:"Only the companies of their assigned agent"};
@@ -2893,6 +2896,383 @@ document.head.append(el("style",{text:`#pocBell{position:relative}#pocBell .bb{p
 .belli{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}.belli img{width:32px;height:32px;border-radius:50%}.belli.new{background:var(--acc-soft)}
 .welcome{position:fixed;inset:0;z-index:97;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:16px}.wcard{max-width:440px;background:var(--bg);border:1px solid var(--acc);border-radius:16px;padding:24px;box-shadow:var(--glow);text-align:center}.wcard h2{font:800 22px var(--f-hud);letter-spacing:.06em;margin:0 0 8px}
 .ucard.dirty{border-color:var(--acc2);box-shadow:0 0 0 1px var(--acc2)}.savebar .btn.pri[disabled]{opacity:.45}`}));
+
+/* ================= Products & inventory (admin + manager only) ================= */
+/* Point of Rental exports → monthly sales, best sellers, Min/Max, reorder list, and a shared file library.
+   Firestore: inv/meta, inv/settings, inv/p0..pN (product summaries) · invfiles/{id} (file info) · invchunks/{id}_{n} (gzip, base64) */
+const INV_ROLES=["admin","manager"];
+const invOK=()=>INV_ROLES.includes(S.role);
+IC.products='<path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/>';
+IC.upload='<path d="M12 21V9m0 0-4 4m4-4 4 4M4 3h16"/>';
+IC.trash='<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/>';
+const POR={
+  lines:{what:"What was sold",cols:"CNTR · ITEM · QTY · TXTY · PRIC",l:"Sales lines",need:true,test:h=>h.includes("CNTR")&&h.includes("ITEM")&&h.includes("TXTY")&&h.includes("PRIC")},
+  contracts:{what:"When it was sold (contract dates)",cols:"CNTR · DATE · STAT · CUSN",l:"Contracts",need:true,test:h=>h.includes("CNTR")&&h.includes("DATE")&&h.includes("STAT")&&h.includes("CUSN")},
+  items:{what:"Products, stock on hand, cost",cols:"KEY · Name · NUM · QTY · TYPE",l:"Item master",need:true,test:h=>h.includes("KEY")&&h.includes("NUM")&&h.includes("QTY")&&h.includes("TYPE")},
+  pohead:{what:"PO dates and status",cols:"PONumber · Date · VendorNumber · Status",l:"PO headers",need:false,test:h=>h.includes("PONumber")&&h.includes("VendorNumber")&&h.includes("Status")&&!h.includes("ItemNumber")},
+  polines:{what:"Received dates, open orders",cols:"PONumber · ItemNumber · QuantityReceived",l:"PO lines",need:false,test:h=>h.includes("PONumber")&&h.includes("ItemNumber")&&h.includes("QuantityReceived")},
+  vendors:{what:"Vendor names",cols:"VendorNumber · VendorName",l:"Vendors",need:false,test:h=>h.includes("VendorNumber")&&h.includes("VendorName")&&!h.includes("PONumber")}
+};
+const INV_DEF={sl:0.95,review:30,leadDef:9,lookback:12,start:"",lumpy:3,occ:0.25};
+const invSet=()=>Object.assign({},INV_DEF,(S.inv&&S.inv.settings)||{});
+
+/* ---------- CSV ---------- */
+function parseCSV(text){const rows=[];let row=[],f="",q=false,i=0;const n=text.length;
+  while(i<n){const c=text.charCodeAt(i);
+    if(q){if(c===34){if(text.charCodeAt(i+1)===34){f+='"';i+=2;continue}q=false;i++;continue}f+=text[i];i++;continue}
+    if(c===34){q=true;i++;continue}
+    if(c===44){row.push(f);f="";i++;continue}
+    if(c===10||c===13){row.push(f);f="";if(row.length>1||row[0]!=="")rows.push(row);row=[];if(c===13&&text.charCodeAt(i+1)===10)i++;i++;continue}
+    f+=text[i];i++}
+  if(f!==""||row.length){row.push(f);rows.push(row)}return rows}
+const decodeText=buf=>{const u=new Uint8Array(buf);try{return new TextDecoder("utf-8",{fatal:true}).decode(u)}catch(_){return new TextDecoder("windows-1252").decode(u)}};
+function porType(headerLine){const h=headerLine.replace(/^﻿/,"").split(",").map(x=>x.trim().replace(/^"|"$/g,""));for(const k in POR)if(POR[k].test(h))return k;return ""}
+const firstLine=t=>t.slice(0,t.search(/\r?\n/)>0?t.search(/\r?\n/):5000);
+const toObjs=text=>{const r=parseCSV(text.replace(/^﻿/,""));const h=r[0].map(x=>x.trim());return {h,rows:r.slice(1),ix:k=>h.indexOf(k)}};
+const porDate=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*([AP]M))?/i.exec(String(s||"").trim());if(!m)return null;let H=+(m[4]||0);if(m[6]){H=H%12+(/p/i.test(m[6])?12:0)}return new Date(+m[3],+m[1]-1,+m[2],H,+(m[5]||0))};
+const ymOf=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+const WK0=Date.UTC(2020,0,6);const wkOf=d=>Math.floor((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-WK0)/(7*DAY));
+const median=a=>{a=a.filter(x=>x!=null&&!isNaN(x)).sort((x,y)=>x-y);if(!a.length)return null;const m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2};
+const modeOf=a=>{const c=new Map();let b=null,bn=0;for(const x of a){if(x==null||x==="")continue;const n=(c.get(x)||0)+1;c.set(x,n);if(n>bn){bn=n;b=x}}return b};
+const NONSTOCK_RX=/\b(fees?|discount|licen[cs]es?|labou?r|shipping|freight|subscription|data plan|activation)\b/i;
+
+/* ---------- crunch the exports into product summaries ---------- */
+function crunch(T){
+  const it=toObjs(T.items),tr=toObjs(T.contracts),li=toObjs(T.lines);
+  const I=k=>it.ix(k),num={},grp=new Map();
+  for(const r of it.rows){const key=String(r[I("KEY")]||"").trim();if(!key)continue;const pk=key.replace(/#\d+$/,"").toUpperCase();
+    const q=+r[I("QTY")]||0,type=(r[I("TYPE")]||"").trim(),inact=/^true$/i.test(r[I("Inactive")]||"");
+    num[(r[I("NUM")]||"").trim()]=pk;let g=grp.get(pk);if(!g){g={names:[],types:[],oh:0,cost:[],sell:[],vend:[],ns:true};grp.set(pk,g)}
+    g.names.push((r[I("Name")]||"").trim());g.types.push(type);if(!inact)g.oh+=Math.max(0,q);
+    const pp=+r[I("PURP")];if(pp>0)g.cost.push(pp);const sp=+r[I("SELL")];if(!isNaN(sp))g.sell.push(sp);const vn=+r[I("VendorNumber1")];if(vn>0)g.vend.push(vn);
+    if(!(q>=9000||["M","T","V"].includes(type)))g.ns=false}
+  // contracts
+  const C=k=>tr.ix(k),cdate=new Map(),now=Date.now()+DAY;
+  for(const r of tr.rows){const id=(r[C("CNTR")]||"").trim();if(!id)continue;if(/^[qrc]/i.test(id))continue;if(C("Cancelled")>=0&&/^true$/i.test(r[C("Cancelled")]||""))continue;
+    const d=porDate(r[C("DATE")]);if(d&&d.getTime()<=now)cdate.set(id,d)}
+  // sales lines
+  const L=k=>li.ix(k),P=new Map();let first=null,last=null;
+  for(const r of li.rows){const t=(r[L("TXTY")]||"").trim();if(t!=="S"&&t!=="SS")continue;const id=(r[L("CNTR")]||"").trim();const d=cdate.get(id);if(!d)continue;
+    const pk=num[(r[L("ITEM")]||"").trim()];if(!pk)continue;const q=+r[L("QTY")]||0,a=+r[L("PRIC")]||0;
+    let p=P.get(pk);if(!p){p={m:{},w:{},o:new Set(),ls:null};P.set(pk,p)}const ym=ymOf(d);const mm=p.m[ym]||(p.m[ym]=[0,0,0]);mm[0]+=q;mm[1]+=a;
+    const okey=ym+"|"+id;if(!p.o.has(okey)){p.o.add(okey);mm[2]++}const wk=wkOf(d);p.w[wk]=(p.w[wk]||0)+q;if(!p.ls||d>p.ls)p.ls=d;
+    if(!first||d<first)first=d;if(!last||d>last)last=d}
+  // vendors / POs
+  const vname={};if(T.vendors){const v=toObjs(T.vendors);for(const r of v.rows)vname[(r[v.ix("VendorNumber")]||"").trim()]=(r[v.ix("VendorName")]||"").trim()}
+  const ltP=new Map(),ltV=new Map(),oo=new Map();let ltAll=[];
+  if(T.pohead&&T.polines){const ph=toObjs(T.pohead),pl=toObjs(T.polines),po={};
+    for(const r of ph.rows)po[(r[ph.ix("PONumber")]||"").trim()]={d:porDate(r[ph.ix("Date")]),v:(r[ph.ix("VendorNumber")]||"").trim(),st:(r[ph.ix("Status")]||"").trim()};
+    for(const r of pl.rows){const h=po[(r[pl.ix("PONumber")]||"").trim()];if(!h)continue;const pk=num[(r[pl.ix("ItemNumber")]||"").trim()];
+      const rd=porDate(r[pl.ix("DateReceived")]);if(rd&&h.d){const lt=Math.round((rd-h.d)/DAY);if(lt>=0&&lt<=180){ltAll.push(lt);if(pk)(ltP.get(pk)||ltP.set(pk,[]).get(pk)).push(lt);(ltV.get(h.v)||ltV.set(h.v,[]).get(h.v)).push(lt)}}
+      if(pk&&h.st!=="C"){const open=Math.max(0,(+r[pl.ix("QuantityOrdered")]||0)-(+r[pl.ix("QuantityReceived")]||0));if(open)oo.set(pk,(oo.get(pk)||0)+open)}}}
+  const prods=[];
+  for(const [pk,g] of grp){const s=P.get(pk);if(g.ns)continue;const name=modeOf(g.names.filter(Boolean))||pk;if(NONSTOCK_RX.test(name)&&!/cable|coax|kit/i.test(name))continue;
+    if(!s&&g.oh<=0)continue;const ven=modeOf(g.vend);let lt=median(ltP.get(pk)||[]),lts="item";if(lt==null&&ven!=null){lt=median(ltV.get(String(ven))||[]);lts=lt==null?"":"vendor"}if(lt==null)lts="";
+    const r={k:pk,n:name,t:modeOf(g.types)||"",v:ven!=null?(vname[String(ven)]||String(ven)):"",oh:g.oh,oo:oo.get(pk)||0,c:median(g.cost),s:median(g.sell),lt,lts};
+    if(s){r.m=s.m;r.w=s.w;r.ls=s.ls.toISOString().slice(0,10)}prods.push(r)}
+  return {prods,first:first&&first.toISOString().slice(0,10),last:last&&last.toISOString().slice(0,10),ltAll:median(ltAll),
+    counts:{items:it.rows.length,contracts:tr.rows.length,lines:li.rows.length}}}
+
+/* ---------- Min / Max maths ---------- */
+function normInv(p){const a=[-39.69683028665376,220.9460984245205,-275.9285104469687,138.357751867269,-30.66479806614716,2.506628277459239],b=[-54.47609879822406,161.5858368580409,-155.6989798598866,66.80131188771972,-13.28068155288572],c=[-.007784894002430293,-.3223964580411365,-2.400758277161838,-2.549732539343734,4.374664141464968,2.938163982698783],d=[.007784695709041462,.3224671290700398,2.445134137142996,3.754408661907416];
+  const pl=.02425;let q,r;if(p<pl){q=Math.sqrt(-2*Math.log(p));return(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)}
+  if(p>1-pl){q=Math.sqrt(-2*Math.log(1-p));return-(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)}
+  q=p-.5;r=q*q;return(((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)}
+function invWindow(){const st=invSet(),meta=(S.inv&&S.inv.meta)||{};const end=meta.exported?new Date(meta.exported+"T00:00:00"):new Date();
+  let start=new Date(end.getFullYear(),end.getMonth()-(+st.lookback||12),end.getDate());
+  const auto=meta.autoStart?new Date(meta.autoStart+"-01T00:00:00"):null;const fixed=st.start?new Date(st.start+"-01T00:00:00"):null;
+  if(fixed&&fixed>start)start=fixed;else if(!fixed&&auto&&auto>start)start=auto;
+  const days=Math.max(1,Math.round((end-start)/DAY));return {start,end,days,weeks:Math.max(1,Math.ceil(days/7)),z:normInv(Math.min(.999,Math.max(.5,+st.sl||.95)))}}
+function invCalc(){const P=(S.inv&&S.inv.prods)||[];const st=invSet(),W=invWindow();const sym=ymOf(W.start),eym=ymOf(W.end),w0=wkOf(W.start),w1=wkOf(new Date(W.end-DAY));
+  return P.map(p=>{let sold=0,amt=0,ord=0;for(const ym in (p.m||{}))if(ym>=sym&&ym<=eym){sold+=p.m[ym][0];amt+=p.m[ym][1];ord+=p.m[ym][2]}
+    let s1=0,s2=0,wks=0;for(const k in (p.w||{})){const i=+k;if(i<w0||i>w1)continue;const q=p.w[k];s1+=q;s2+=q*q;if(q>0)wks++}
+    const n=w1-w0+1,mean=s1/n,sd=n>1?Math.sqrt(Math.max(0,(s2-n*mean*mean)/(n-1))):0;
+    const lt=p.lt!=null?p.lt:+st.leadDef,daily=sold/W.days,ss=W.z*(sd/Math.sqrt(7))*Math.sqrt(lt);
+    const min=sold>0?Math.ceil(daily*lt+ss-1e-9):0,max=sold>0?Math.ceil(min+daily*(+st.review)-1e-9):0,av=p.oh+p.oo,order=sold>0&&av<=min?Math.max(0,max-av):0;
+    const status=sold<=0?(p.oh>0?"No sales":"—"):p.oh<=0?(p.oo>0?"Out · on order":"OUT OF STOCK"):av<=min?"REORDER":p.oh>max?"Above max":"OK";
+    const pat=sold<=0?"—":ord<=(+st.lumpy)?"Project / lumpy":wks<n*(+st.occ)?"Occasional":"Regular";
+    return Object.assign({},p,{sold,amt,ord,wks,sd,daily,ltU:lt,ss,min,max,av,order,status,pat,val:p.c!=null?order*p.c:null,ohVal:p.c!=null?p.oh*p.c:null})})}
+
+/* ---------- Firestore load / save ---------- */
+async function invLoad(force){if(S.inv&&!force)return;if(!S.db)throw new Error("No database");
+  const snap=await S.db.collection("inv").get();const docs={};snap.docs.forEach(d=>docs[d.id]=d.data());
+  const meta=docs.meta||null,prods=[];if(meta)for(let i=0;i<(meta.parts||0);i++)prods.push(...((docs["p"+i]||{}).items||[]));
+  S.inv={meta,settings:docs.settings||{},prods};S._invCalc=null}
+async function invSave(res,sources){const CH=1000,parts=Math.ceil(res.prods.length/CH),old=(S.inv&&S.inv.meta&&S.inv.meta.parts)||0;
+  for(let i=0;i<parts;i++)await S.db.doc("inv/p"+i).set({items:res.prods.slice(i*CH,(i+1)*CH)});
+  for(let i=parts;i<old;i++)await S.db.doc("inv/p"+i).delete().catch(()=>{});
+  const months={};for(const p of res.prods)for(const ym in (p.m||{}))months[ym]=(months[ym]||0)+p.m[ym][0];
+  const ms=Object.keys(months).sort(),med=median(Object.values(months))||0,autoStart=ms.find(m=>months[m]>=med*0.1)||ms[0]||"";
+  const meta={at:new Date().toISOString(),by:(S.me&&S.me.name)||"",parts,count:res.prods.length,first:res.first,last:res.last,exported:sources.exported||new Date().toISOString().slice(0,10),autoStart,ltAll:res.ltAll,counts:res.counts,sources};
+  await S.db.doc("inv/meta").set(meta);if(res.ltAll!=null&&!(S.inv&&S.inv.settings&&S.inv.settings.leadDef!=null))await S.db.doc("inv/settings").set(Object.assign({},(S.inv&&S.inv.settings)||{},{leadDef:res.ltAll}));
+  await invLoad(true)}
+
+/* ---------- file library (gzip → base64 chunks) ---------- */
+const CHUNK=600000;
+const b64=u=>{let s="";for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
+const unb64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
+async function gz(buf,dir){if(typeof CompressionStream==="undefined")return null;const st=new Blob([buf]).stream().pipeThrough(dir?new DecompressionStream("gzip"):new CompressionStream("gzip"));return new Uint8Array(await new Response(st).arrayBuffer())}
+async function libPut(file,buf,ptype){const raw=new Uint8Array(buf);const z=await gz(raw,false);const data=z&&z.length<raw.length?z:raw;const isGz=data!==raw;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7),n=Math.ceil(data.length/CHUNK)||1;
+  for(let i=0;i<n;i++)await S.db.doc(`invchunks/${id}_${i}`).set({d:b64(data.subarray(i*CHUNK,(i+1)*CHUNK))});
+  const info={name:file.name,size:raw.length,stored:data.length,gz:isGz,chunks:n,mime:file.type||"",por:ptype||"",by:(S.me&&S.me.name)||"",byId:(S.me&&S.me.id)||"",at:new Date().toISOString(),modified:file.lastModified?new Date(file.lastModified).toISOString():null};
+  await S.db.doc("invfiles/"+id).set(info);if(ptype){await S.db.doc("inv/uploads").set({[ptype]:{at:info.at,by:info.by,file:info.name,size:info.size}},{merge:true}).catch(()=>{})}
+  footprint("products",ptype||"other",ptype?POR[ptype].l:"Other file",file.name,null,kb(raw.length));return Object.assign({id},info)}
+async function libGet(f){const parts=[];for(let i=0;i<f.chunks;i++){const d=await S.db.doc(`invchunks/${f.id}_${i}`).get();if(!d.exists)throw new Error("File part missing");parts.push(unb64(d.data().d))}
+  const all=new Uint8Array(parts.reduce((a,p)=>a+p.length,0));let o=0;for(const p of parts){all.set(p,o);o+=p.length}return f.gz?await gz(all,true):all}
+async function libDel(f){for(let i=0;i<f.chunks;i++)await S.db.doc(`invchunks/${f.id}_${i}`).delete().catch(()=>{});await S.db.doc("invfiles/"+f.id).delete()}
+async function libList(){const s=await S.db.collection("invfiles").get();return s.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>String(b.at).localeCompare(String(a.at)))}
+const kb=n=>n>=1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB";
+
+/* ---------- charts ---------- */
+function colChart(rows,{h=220,fmtV=fmt,color="--acc",line,lineFmt=fmt}={}){const W=Math.max(320,rows.length*56),H=h,pad=34,mx=Math.max(1,...rows.map(r=>r.v)),bw=Math.min(36,(W-pad)/rows.length*0.6);
+  const svg=sv("svg",{viewBox:`0 0 ${W} ${H+28}`,class:"colc",preserveAspectRatio:"xMidYMid meet"});
+  for(let g=0;g<=4;g++){const y=H-g/4*(H-pad);svg.append(sv("line",{x1:0,x2:W,y1:y,y2:y,stroke:"var(--line)"}))}
+  const lm=line?Math.max(1,...rows.map(r=>r.l||0)):1,pts=[];
+  rows.forEach((r,i)=>{const x=pad/2+i*((W-pad)/rows.length)+((W-pad)/rows.length-bw)/2,bh=r.v/mx*(H-pad),y=H-bh;
+    const g=sv("g",{class:"colb"});g.append(sv("title",{text:`${r.label}: ${fmtV(r.v)}${line?" · "+lineFmt(r.l||0)+" units":""}`}),sv("rect",{x,y,width:bw,height:Math.max(0,bh),rx:5,fill:`var(${r.c||color})`,opacity:r.dim?.45:1}),
+      sv("text",{x:x+bw/2,y:H+16,"text-anchor":"middle",class:"cx",text:r.label}),sv("text",{x:x+bw/2,y:Math.max(12,y-6),"text-anchor":"middle",class:"cv",text:fmtV(r.v)}));svg.append(g);
+    if(line)pts.push([x+bw/2,H-(r.l||0)/lm*(H-pad)])});
+  if(line&&pts.length>1){svg.append(sv("path",{d:"M"+pts.map(p=>p.join(",")).join("L"),fill:"none",stroke:"var(--acc2)","stroke-width":2.5}));pts.forEach(p=>svg.append(sv("circle",{cx:p[0],cy:p[1],r:3.5,fill:"var(--acc2)"})))}
+  return el("div",{class:"colwrap"},svg)}
+
+/* ---------- the view ---------- */
+const PSTAT={"OUT OF STOCK":"p-bad","REORDER":"p-bad","Out · on order":"p-warn","Above max":"p-warn","OK":"p-ok","No sales":"p-idle"};
+const pill=(t,c)=>el("span",{class:"pill "+(c||"p-acc"),text:t});
+const mon=ym=>{const [y,m]=ym.split("-");return new Date(+y,+m-1,1).toLocaleDateString("en-CA",{month:"short",year:"2-digit"})};
+S.invTab=S.invTab||"overview";
+VIEWS.products=v=>{
+  if(!invOK()){v.append(el("div",{class:"empty"},el("h3",{text:"Admins and managers only"}),el("p",{text:"Ask an admin for the manager role to see products and inventory."})));return}
+  v.append(secH("Products & inventory","Point of Rental sales, best sellers, Min / Max and what to order. Admins and managers only.",el("button",{class:"btn sm",onclick:()=>{S.invTab="files";render()}},icon("upload"),"Upload / files")));
+  const body=el("div");v.append(body);
+  if(!S.inv){body.append(loaderNode("Loading products…"));invLoad().then(()=>render(true)).catch(e=>body.replaceChildren(el("p",{class:"diff",text:"Could not load products: "+(e.message||e)+". If this says permission denied, publish the new firestore.rules."})));return}
+  const tabs=[["overview","Overview"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["files","Files"],["settings","Settings"]];
+  body.append(el("div",{class:"seg invtabs"},tabs.map(([k,l])=>el("button",{class:S.invTab===k?"on":"",onclick:()=>{S.invTab=k;render(true)}},l))));
+  const meta=S.inv.meta;
+  if(!meta&&S.invTab!=="files"&&S.invTab!=="settings"){body.append(el("div",{class:"card mt"},el("h3",{text:"No product data yet"}),el("p",{text:"Open Files and upload the Point of Rental exports: Sales lines, Contracts and Item master (required), plus PO headers, PO lines and Vendors for real lead times."}),el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload files")));return}
+  if(meta)body.append(el("p",{class:"hint mt",text:`Data from POS exports up to ${meta.exported} · ${fmt(meta.count)} products · updated ${new Date(meta.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}${meta.by?" by "+meta.by:""}`}));
+  const T=INV_TABS[S.invTab]||INV_TABS.overview;T(body)};
+const INV_TABS={};
+const calcRows=()=>{const k=JSON.stringify(invSet())+"|"+((S.inv&&S.inv.meta&&S.inv.meta.at)||"")+"|"+((S.inv&&S.inv.prods.length)||0);if(!S._invCalc||S._invCalc.k!==k||S._invCalc.src!==S.inv)S._invCalc={k,src:S.inv,rows:invCalc()};return S._invCalc.rows};
+const winText=()=>{const W=invWindow(),st=invSet();return `${W.start.toISOString().slice(0,10)} to ${new Date(W.end-DAY).toISOString().slice(0,10)} (${W.days} days) · service level ${Math.round(st.sl*100)}% · review every ${st.review} days`};
+const expBtn=(name,head,rows)=>el("button",{class:"btn sm",onclick:()=>exportCSV(name,head,rows())},icon("dl"),"Download");
+
+INV_TABS.overview=b=>{const R=calcRows(),sold=R.filter(r=>r.sold>0);
+  const units=sold.reduce((a,r)=>a+r.sold,0),rev=sold.reduce((a,r)=>a+r.amt,0),re=R.filter(r=>r.status==="REORDER"||r.status==="OUT OF STOCK"),out=R.filter(r=>r.status==="OUT OF STOCK"),over=R.filter(r=>r.status==="Above max"),dead=R.filter(r=>r.status==="No sales");
+  const go=t=>()=>{S.invTab=t;render(true)};
+  b.append(el("p",{class:"hint",text:"Window: "+winText()}),el("div",{class:"kpis mt"},
+    kpi({label:"Products sold",value:sold.length,note:`${fmt(units)} units in the window`,ic:"products",onClick:go("best")}),
+    kpi({label:"Sales",value:Math.round(rev),fmtFn:money,note:"Before tax, stock products",ic:"money",cls:"solid",onClick:go("monthly")}),
+    kpi({label:"Need to order now",value:re.length,note:`${fmt(out.length)} out of stock · ${money(re.reduce((a,r)=>a+(r.val||0),0))}`,ic:"alerts",cls:re.length?"alarm":"",onClick:go("order")}),
+    kpi({label:"Above max",value:over.length,note:`${money(over.reduce((a,r)=>a+Math.max(0,r.oh-r.max)*(r.c||0),0))} tied up over max`,ic:"power",cls:"orange",onClick:go("minmax")}),
+    kpi({label:"No sales in window",value:dead.length,note:`${money(dead.reduce((a,r)=>a+(r.ohVal||0),0))} of stock on hand`,ic:"x",onClick:go("minmax")})));
+  const M=invMonths();b.append(el("div",{class:"card mt"},el("h3",{text:"Sales by month ($ bars · units line)"}),colChart(M.map(m=>({label:mon(m.ym),v:Math.round(m.amt),l:m.qty,dim:m.partial})),{fmtV:v=>v>=1000?"$"+Math.round(v/1000)+"k":money(v),line:true})));
+  const top=(k,f)=>[...sold].sort((a,c)=>c[k]-a[k]).slice(0,10).map(r=>({l:r.n.slice(0,34),v:Math.round(r[k]),title:r.k,onClick:()=>invItem(r)}));
+  b.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"Top 10 by units"}),hbars(top("sold"))),el("div",{class:"card"},el("h3",{text:"Top 10 by sales $"}),hbars(top("amt")))));
+  b.append(el("div",{class:"card mt"},el("h3",{text:"Order these first (regular sellers)"}),invTable(re.filter(r=>r.pat==="Regular"),"order")))};
+function invMonths(){const P=(S.inv&&S.inv.prods)||[],acc={};for(const p of P)for(const ym in (p.m||{})){const a=acc[ym]||(acc[ym]={qty:0,amt:0,prods:0});a.qty+=p.m[ym][0];a.amt+=p.m[ym][1];a.prods++}
+  const meta=S.inv.meta||{},auto=meta.autoStart||"",ex=(meta.exported||"").slice(0,7);
+  return Object.keys(acc).sort().filter(ym=>!auto||ym>=auto).map(ym=>Object.assign({ym,partial:ym===ex},acc[ym]))}
+
+INV_TABS.monthly=b=>{const M=invMonths(),full=M.filter(m=>!m.partial);
+  const st=(k,f)=>full.length?f(...full.map(m=>m[k])):0,lo=k=>full.length?full.reduce((a,m)=>m[k]<a[k]?m:a):null,hi=k=>full.length?full.reduce((a,m)=>m[k]>a[k]?m:a):null;
+  b.append(el("div",{class:"kpis mt"},
+    kpi({label:"Average month",value:Math.round(st("amt",(...a)=>a.reduce((x,y)=>x+y,0)/a.length)),fmtFn:money,note:`${fmt(Math.round(st("qty",(...a)=>a.reduce((x,y)=>x+y,0)/a.length)))} units · full months`,ic:"compare"}),
+    kpi({label:"Best month ($)",value:Math.round(hi("amt")?hi("amt").amt:0),fmtFn:money,note:hi("amt")?mon(hi("amt").ym):"—",ic:"check",cls:"solid"}),
+    kpi({label:"Lowest month ($)",value:Math.round(lo("amt")?lo("amt").amt:0),fmtFn:money,note:lo("amt")?mon(lo("amt").ym):"—",ic:"power",cls:"orange"}),
+    kpi({label:"Most units",value:hi("qty")?hi("qty").qty:0,note:hi("qty")?mon(hi("qty").ym)+` · lowest ${mon(lo("qty").ym)} (${fmt(lo("qty").qty)})`:"—",ic:"products"})));
+  b.append(el("div",{class:"card mt"},el("h3",{text:"Company totals by month"}),colChart(M.map(m=>({label:mon(m.ym),v:Math.round(m.amt),l:m.qty,dim:m.partial})),{fmtV:v=>v>=1000?"$"+Math.round(v/1000)+"k":money(v),line:true}),
+    table([{l:"Month",v:r=>r.ym,f:r=>mon(r.ym)+(r.partial?" (part)":"")},{l:"Units",v:r=>r.qty,num:1},{l:"Sales $",v:r=>r.amt,f:r=>money(r.amt),num:1},{l:"Products sold",v:r=>r.prods,num:1}],M,{sort:0,dir:1})));
+  // product × month
+  const R=calcRows().filter(r=>r.m),last=M.slice(-12).map(m=>m.ym),fullL=last.filter(ym=>!M.find(m=>m.ym===ym).partial);let mode="qty",q="";
+  const host=el("div");const tg=el("div",{class:"seg"},[["qty","Units"],["amt","Sales $"]].map(([k,l])=>el("button",{class:k===mode?"on":"",onclick:e=>{mode=k;tg.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===e.target));fill()}},l)));
+  const vOf=(r,ym)=>{const x=r.m[ym];return x?(mode==="qty"?x[0]:x[1]):0},f=n=>mode==="qty"?fmt(Math.round(n*100)/100):money(n);
+  const fill=()=>{const rows=R.filter(r=>!q||(r.k+" "+r.n).toLowerCase().includes(q)).map(r=>{const vals=fullL.map(ym=>vOf(r,ym));return Object.assign({},r,{tot:last.reduce((a,ym)=>a+vOf(r,ym),0),mn:Math.min(...vals),mx:Math.max(...vals),av:vals.reduce((a,x)=>a+x,0)/(vals.length||1),mw:vals.filter(x=>x>0).length})});
+    host.replaceChildren(table([{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},...last.map(ym=>({l:mon(ym),v:r=>vOf(r,ym),f:r=>f(vOf(r,ym)),num:1})),{l:"Total",v:r=>r.tot,f:r=>f(r.tot),num:1},{l:"Avg / month",v:r=>r.av,f:r=>f(r.av),num:1},{l:"MIN month",v:r=>r.mn,f:r=>f(r.mn),num:1},{l:"MAX month",v:r=>r.mx,f:r=>f(r.mx),num:1},{l:"Months sold",v:r=>r.mw,num:1}],rows,{sort:2+last.length,dir:-1,onRow:invItem}))};
+  b.append(el("div",{class:"card mt"},el("h3",{text:"Each product by month"}),el("p",{class:"hint",text:"MIN, MAX and average use full months only (the current month is partial). Click a product for its details."}),
+    el("div",{class:"filters"},tg,el("input",{type:"search",placeholder:"Search product…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),
+      expBtn("Products-by-month",["Product","Description",...last.map(mon),"Total"],()=>R.map(r=>[r.k,r.n,...last.map(ym=>vOf(r,ym)),last.reduce((a,ym)=>a+vOf(r,ym),0)]))),host));fill()};
+
+INV_TABS.yearly=b=>{const P=calcRows().filter(r=>r.m),yrs=[...new Set(P.flatMap(r=>Object.keys(r.m).map(ym=>ym.slice(0,4))))].sort();
+  const yv=(r,y,i)=>Object.keys(r.m).filter(ym=>ym.startsWith(y)).reduce((a,ym)=>a+r.m[ym][i],0);
+  const tot=yrs.map(y=>({y,qty:P.reduce((a,r)=>a+yv(r,y,0),0),amt:P.reduce((a,r)=>a+yv(r,y,1),0),prods:P.filter(r=>yv(r,y,0)>0).length}));
+  b.append(el("p",{class:"hint mt",text:"Sales history in Point of Rental starts when the system went live, so early years may be small. The current year is year-to-date."}));
+  b.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"Sales $ by year"}),colChart(tot.map(t=>({label:t.y,v:Math.round(t.amt),l:t.qty})),{fmtV:money,line:true})),
+    el("div",{class:"card"},el("h3",{text:"Totals"}),table([{l:"Year",v:r=>r.y},{l:"Units",v:r=>r.qty,num:1},{l:"Sales $",v:r=>r.amt,f:r=>money(r.amt),num:1},{l:"Products sold",v:r=>r.prods,num:1}],tot,{sort:0,dir:1}))));
+  const rows=P.map(r=>{const o=Object.assign({},r);yrs.forEach(y=>{o["q"+y]=yv(r,y,0);o["a"+y]=yv(r,y,1)});const qs=yrs.map(y=>o["q"+y]);o.mn=Math.min(...qs);o.mx=Math.max(...qs);return o});
+  b.append(el("div",{class:"card mt"},el("div",{class:"filters"},el("h3",{style:"margin:0;flex:1",text:"Each product by year"}),expBtn("Products-by-year",["Product","Description",...yrs.map(y=>"Units "+y),...yrs.map(y=>"Sales $ "+y)],()=>rows.map(r=>[r.k,r.n,...yrs.map(y=>r["q"+y]),...yrs.map(y=>Math.round(r["a"+y]*100)/100)]))),
+    table([{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},...yrs.map(y=>({l:"Units "+y,v:r=>r["q"+y],num:1})),...yrs.map(y=>({l:"Sales $ "+y,v:r=>r["a"+y],f:r=>money(r["a"+y]),num:1})),{l:"MIN year",v:r=>r.mn,num:1},{l:"MAX year",v:r=>r.mx,num:1}],rows,{sort:2+yrs.length-1,dir:-1,onRow:invItem})))};
+
+INV_TABS.best=b=>{const P=calcRows().filter(r=>r.m),M=invMonths().map(m=>m.ym);let per="win",by="sold";
+  const pers=[["30","Last 30 days"],["90","Last 90 days"],["win","Min/Max window"],["all","All time"],...[...new Set(M.map(m=>m.slice(0,4)))].map(y=>["y"+y,y])];
+  const host=el("div"),ps=el("select",{onchange:e=>{per=e.target.value;fill()}},pers.map(([k,l])=>el("option",{value:k,selected:k===per},l)));
+  const bs=el("div",{class:"seg"},[["sold","By units"],["amt","By sales $"],["ord","By # orders"]].map(([k,l])=>el("button",{class:k===by?"on":"",onclick:e=>{by=k;bs.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===e.target));fill()}},l)));
+  const W=invWindow();
+  const fill=()=>{let rows;
+    if(per==="win")rows=P.filter(r=>r.sold>0).map(r=>({r,sold:r.sold,amt:r.amt,ord:r.ord}));
+    else{const end=W.end,days=+per,from=days?ymOf(new Date(end-days*DAY)):null;rows=P.map(r=>{let s=0,a=0,o=0;for(const ym in r.m){if(per==="all"||(per[0]==="y"&&ym.startsWith(per.slice(1)))||(days&&ym>=from)){s+=r.m[ym][0];a+=r.m[ym][1];o+=r.m[ym][2]}}return {r,sold:s,amt:a,ord:o}}).filter(x=>x.sold>0)}
+    rows.sort((a,c)=>c[by]-a[by]);rows.forEach((x,i)=>x.rank=i+1);const tot=rows.reduce((a,x)=>a+x[by],0);let cum=0;rows.forEach(x=>{cum+=x[by];x.cum=tot?cum/tot:0;x.abc=x.cum<=.8?"A":x.cum<=.95?"B":"C"});
+    host.replaceChildren(el("div",{class:"card mt"},el("h3",{text:"Top 15"}),hbars(rows.slice(0,15).map(x=>({l:x.r.n.slice(0,40),v:Math.round(x[by]),onClick:()=>invItem(x.r)})))),
+      el("div",{class:"card mt"},el("p",{class:"hint",text:"A items make up 80% of the total, B the next 15%, C the last 5%. Keep A items in stock first."}),
+        table([{l:"#",v:x=>x.rank,num:1},{l:"Product",v:x=>x.r.k},{l:"Description",v:x=>x.r.n},{l:"Units",v:x=>x.sold,num:1},{l:"Sales $",v:x=>x.amt,f:x=>money(x.amt),num:1},{l:"Orders",v:x=>x.ord,num:1},{l:"On hand",v:x=>x.r.oh,num:1},{l:"Class",v:x=>x.abc,f:x=>pill(x.abc,x.abc==="A"?"p-ok":x.abc==="B"?"p-warn":"p-idle")},{l:"Status",v:x=>x.r.status,f:x=>pill(x.r.status,PSTAT[x.r.status])}],rows,{sort:0,dir:1,onRow:x=>invItem(x.r)})))};
+  b.append(el("div",{class:"filters mt"},ps,bs,expBtn("Best-sellers",["Rank","Product","Description","Units","Sales $","Orders","On hand"],()=>{const t=[];host.querySelectorAll("tbody tr").forEach(tr=>t.push([...tr.children].slice(0,7).map(td=>td.textContent)));return t})),host);fill()};
+
+function invTable(rows,kind){const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Vendor",v:r=>r.v},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"MIN",v:r=>r.min,num:1},{l:"MAX",v:r=>r.max,num:1},
+  {l:"Order qty",v:r=>r.order,f:r=>r.order?el("b",{text:fmt(r.order)}):"0",num:1},{l:"Order $",v:r=>r.val||0,f:r=>r.val!=null?money(r.val):"—",num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
+  return table(cols,rows,{sort:kind==="order"?8:9,dir:-1,onRow:invItem})}
+const MM_HEAD=["Product","Description","Type","Vendor","On hand","On order","Sold in window","Sales $ in window","Orders","Weeks with sales","Weekly std dev","Lead time days","Lead time from","Avg daily demand","Safety stock","MIN","MAX","Order qty","Unit cost","Order $","Status","Pattern","Last sale"];
+const mmRow=r=>[r.k,r.n,r.t,r.v,r.oh,r.oo,r.sold,Math.round(r.amt*100)/100,r.ord,r.wks,Math.round(r.sd*100)/100,Math.round(r.ltU*10)/10,r.lts?r.lts+" PO history":"default",Math.round(r.daily*1000)/1000,Math.round(r.ss*10)/10,r.min,r.max,r.order,r.c!=null?Math.round(r.c*100)/100:"",r.val!=null?Math.round(r.val*100)/100:"",r.status,r.pat,r.ls||""];
+
+INV_TABS.order=b=>{const R=calcRows();let pat="Regular",q="";const host=el("div");
+  const list=()=>R.filter(r=>(r.status==="REORDER"||r.status==="OUT OF STOCK")&&(pat==="all"||r.pat===pat)&&(!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q)));
+  const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{text:`${fmt(L.length)} products · ${fmt(L.reduce((a,r)=>a+r.order,0))} units · ${money(L.reduce((a,r)=>a+(r.val||0),0))}`})),invTable(L,"order"))};
+  const ps=el("select",{onchange:e=>{pat=e.target.value;fill()}},[["Regular","Regular sellers (recommended)"],["Occasional","Occasional sellers"],["Project / lumpy","Project / lumpy"],["all","All"]].map(([k,l])=>el("option",{value:k},l)));
+  b.append(el("p",{class:"hint mt",text:"Products whose on hand + on order is at or below MIN. Order qty brings them back up to MAX. Project / lumpy items sold in 3 orders or fewer — buy those per job. * = default lead time (no PO history)."}),
+    el("div",{class:"filters"},ps,el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Purchase-list",MM_HEAD,()=>list().map(mmRow))),host);fill()};
+
+INV_TABS.minmax=b=>{const R=calcRows();let st="all",q="";const host=el("div");const W=invWindow(),s=invSet();
+  const list=()=>R.filter(r=>(st==="all"||r.status===st||(st==="sold"&&r.sold>0))&&(!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q)));
+  const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Avg / day",v:r=>r.daily,f:r=>(Math.round(r.daily*100)/100).toFixed(2),num:1},{l:"Std dev / wk",v:r=>r.sd,f:r=>(Math.round(r.sd*10)/10).toFixed(1),num:1},
+    {l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Safety stock",v:r=>r.ss,f:r=>fmt(Math.round(r.ss)),num:1},{l:"MIN",v:r=>r.min,f:r=>el("b",{text:fmt(r.min)}),num:1},{l:"MAX",v:r=>r.max,f:r=>el("b",{text:fmt(r.max)}),num:1},{l:"Order qty",v:r=>r.order,num:1},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
+  const fill=()=>host.replaceChildren(table(cols,list(),{sort:4,dir:-1,onRow:invItem}));
+  const ss=el("select",{onchange:e=>{st=e.target.value;fill()}},[["all","All products"],["sold","Sold in window"],["OUT OF STOCK","Out of stock"],["REORDER","Reorder"],["Out · on order","Out · on order"],["OK","OK"],["Above max","Above max"],["No sales","No sales (dead stock)"]].map(([k,l])=>el("option",{value:k},l)));
+  b.append(el("div",{class:"card mt"},el("h3",{text:"How MIN and MAX are worked out"}),el("div",{class:"formula"},
+    el("div",{},el("b",{text:"Avg daily demand"})," = units sold ÷ ",el("span",{class:"mono",text:W.days})," days"),
+    el("div",{},el("b",{text:"Safety stock"})," = Z ",el("span",{class:"mono",text:"("+W.z.toFixed(2)+")"})," × weekly std dev ÷ √7 × √lead days"),
+    el("div",{},el("b",{text:"MIN"})," (reorder point) = avg daily × lead days + safety stock, rounded up"),
+    el("div",{},el("b",{text:"MAX"})," (order up to) = MIN + avg daily × ",el("span",{class:"mono",text:s.review})," review days, rounded up"),
+    el("div",{},el("b",{text:"Order qty"})," = MAX − (on hand + on order), when on hand + on order ≤ MIN")),
+    el("p",{class:"hint",text:"Window: "+winText()+". Lead time is the median PO-to-received days for the item, else its vendor, else the default (*). Change these in Settings."})),
+    el("div",{class:"filters mt"},ss,el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Min-Max",MM_HEAD,()=>list().map(mmRow))),host);fill()};
+
+function invItem(r){const M=invMonths().map(m=>m.ym).slice(-12);const d=el("div",{class:"fmt-scrim",onclick:e=>{if(e.target===d)d.remove()}});
+  d.append(el("div",{class:"card invpop"},el("div",{class:"filters",style:"margin:0 0 6px"},el("h3",{style:"flex:1;margin:0",text:r.n}),el("button",{class:"ibtn","aria-label":"Close",onclick:()=>d.remove()},icon("x"))),
+    el("p",{class:"hint",text:`${r.k} · ${r.v||"no vendor"} · type ${r.t||"—"}${r.ls?" · last sale "+r.ls:""}`}),
+    el("div",{class:"kpis mt",style:"grid-template-columns:repeat(4,minmax(0,1fr))"},[["On hand",r.oh],["On order",r.oo],["MIN",r.min],["MAX",r.max]].map(([l,x])=>el("div",{class:"kpi",style:"cursor:default"},el("div",{class:"lab",text:l}),el("div",{class:"val",text:fmt(x)})))),
+    el("p",{class:"mt"},pill(r.status,PSTAT[r.status])," ",pill(r.pat,"p-acc"),r.order?el("b",{text:`  Order ${fmt(r.order)}${r.val!=null?" ("+money(r.val)+")":""}`}):null),
+    colChart(M.map(ym=>({label:mon(ym),v:r.m&&r.m[ym]?r.m[ym][0]:0})),{h:160}),
+    el("p",{class:"hint",text:`Sold ${fmt(r.sold)} in the window (${money(r.amt)}, ${fmt(r.ord)} orders, ${fmt(r.wks)} weeks with sales) · lead time ${fmt(Math.round(r.ltU))} days (${r.lts?r.lts+" PO history":"default"}) · safety stock ${fmt(Math.round(r.ss))}${r.c!=null?" · unit cost "+money(r.c):""}`})));
+  document.body.append(d)}
+
+INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…"));const out=el("div");const ws=weekStart();
+  const handle=async(files,expect)=>{files=[...files];if(!files.length)return;S.invBusy=true;const log=el("div",{class:"card mt"},el("h3",{text:"Uploading"}));out.replaceChildren(log);out.scrollIntoView({behavior:"smooth",block:"nearest"});const line=t=>{const p=el("p",{class:"hint",text:t});log.append(p);return p};
+    const por={};
+    for(const f of files){const p=line(`${f.name} — reading…`);try{if(f.size>25*1048576)throw new Error("over 25 MB");const buf=await f.arrayBuffer();let pt="";
+        if(/\.(csv|txt)$/i.test(f.name)){const text=decodeText(buf);pt=porType(firstLine(text));
+          if(expect&&pt!==expect)throw new Error(pt?`this is the ${POR[pt].l} export, not ${POR[expect].l}. Use the ${POR[pt].l} slot.`:`this is not the ${POR[expect].l} export (columns don't match). Expected: ${POR[expect].cols}.`);
+          if(pt)por[pt]={text,name:f.name,modified:f.lastModified}}
+        else if(expect)throw new Error(`${POR[expect].l} must be the .csv export from Point of Rental.`);
+        p.textContent=`${f.name} — saving to the library…`;await libPut(f,buf,pt);p.textContent=`✓ ${f.name}${pt?" — "+POR[pt].l:""} (${kb(f.size)})`}
+      catch(e){p.textContent=`✗ ${f.name} — ${e.message||e}`;p.style.color="var(--bad)"}}
+    if(Object.keys(por).length){const need=Object.keys(POR).filter(k=>!por[k]);const p=line("Updating products…");
+      try{const L=await libList();for(const k of need){const f=L.find(x=>x.por===k);if(f){p.textContent=`Using the latest ${POR[k].l} from the library (${f.name})…`;por[k]={text:decodeText((await libGet(f)).buffer),name:f.name,fromLib:true}}}
+        const miss=Object.keys(POR).filter(k=>POR[k].need&&!por[k]);if(miss.length)throw new Error("still missing: "+miss.map(k=>POR[k].l).join(", ")+". Upload those in their slots.");
+        await sleep(30);const T={};for(const k in por)T[k]=por[k].text;const res=crunch(T);
+        const exp=Object.values(por).filter(x=>!x.fromLib).map(x=>{const m=/(\d{4})\.(\d{2})\.(\d{2})/.exec(x.name);return m?`${m[1]}-${m[2]}-${m[3]}`:x.modified?new Date(x.modified).toISOString().slice(0,10):null}).filter(Boolean).sort().pop();
+        await invSave(res,{exported:exp,files:Object.fromEntries(Object.entries(por).map(([k,x])=>[k,x.name]))});
+        footprint("products","recalc","Products recalculated",Object.values(por).filter(x=>!x.fromLib).map(x=>x.name).join(", "),res.prods.length,"products");
+        p.textContent=`✓ Products updated: ${fmt(res.prods.length)} products from ${fmt(res.counts.lines)} sales lines.`;p.style.color="var(--ok)";toast("Products updated")}
+      catch(e){p.textContent="✗ Products not updated: "+(e.message||e);p.style.color="var(--bad)"}}
+    S._invCalc=null;log.querySelector("h3").textContent="Last upload";S.invLog=[...log.querySelectorAll("p")].map(p=>[p.textContent,p.style.color]);S.invBusy=false;if(S.view==="products"&&S.invTab==="files")render(true)};
+  if(S.invLog&&S.invLog.length)out.append(el("div",{class:"card mt"},el("div",{class:"filters",style:"margin:0"},el("h3",{style:"flex:1;margin:0",text:"Last upload"}),el("button",{class:"btn sm",onclick:()=>{S.invLog=null;out.textContent=""}},"Clear")),S.invLog.map(([t,c])=>el("p",{class:"hint",style:c?"color:"+c:null,text:t}))));
+  // six Point of Rental slots
+  const up=S.invUp||{};
+  const slot=([k,x])=>{const u=up[k];const done=u&&new Date(u.at)>=ws;const weekly=WEEKLY_POR.includes(k);
+    const fi=el("input",{type:"file",accept:".csv,text/csv",hidden:true,onchange:e=>handle(e.target.files,k)});
+    const c=el("div",{class:"card src slot"+(done?" done":"")},el("div",{class:"src-h"},el("span",{class:"dot "+(u?(done?"ok":"warn"):"")}),el("b",{text:x.l}),
+        u?(done?el("span",{class:"pill p-ok",text:"✓ uploaded"}):el("span",{class:"pill "+(weekly?"p-bad":"p-idle"),text:weekly?"due this week":"older"})):el("span",{class:"pill p-bad",text:"not uploaded"})),
+      el("div",{},pill(x.need?"Required":"Optional · lead time / vendor",x.need?"p-warn":"p-acc")),
+      el("div",{class:"hint",text:x.what}),el("div",{class:"hint mono",style:"font-size:11px",text:x.cols}),
+      u?el("div",{class:"hint",text:`${u.file} · ${kb(u.size||0)}`}):null,u?el("div",{class:"hint",text:`Uploaded ${whenTxt(u.at)}${u.by?" by "+u.by:""}`}):el("div",{class:"hint",text:"Not uploaded yet"}),
+      el("label",{class:"btn sm pri slot-btn"},icon("upload"),"Upload "+x.l,fi));
+    c.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over")});c.addEventListener("dragleave",()=>c.classList.remove("over"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");handle(e.dataTransfer.files,k)});return c};
+  const req=Object.entries(POR).filter(([,x])=>x.need),opt=Object.entries(POR).filter(([,x])=>!x.need);
+  b.append(el("h3",{class:"mt",text:"Point of Rental exports — required"}),el("div",{class:"grid g3 slots"},req.map(slot)),
+    el("h3",{class:"mt",text:"Point of Rental exports — optional (real lead times and vendor names)"}),el("div",{class:"grid g3 slots"},opt.map(slot)),
+    el("p",{class:"hint mt",text:"Each slot checks the file's column headings, so the file name doesn't matter. Upload only what changed — the dashboard re-uses the latest copy of the others. Sales lines, Contracts and Item master are due every Monday."}),out);
+  // other files
+  const fileIn=el("input",{type:"file",multiple:true,hidden:true,onchange:e=>handle(e.target.files)});
+  const dz=el("label",{class:"drop mt",tabindex:0},el("div",{class:"drop-ic"},icon("upload")),el("b",{text:"Other files — drop here or click to choose"}),el("span",{class:"hint",text:"Price lists, PDFs, Excel files, anything the team needs. Stored here for admins and managers to download. Max 25 MB per file."}),fileIn);
+  dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});dz.addEventListener("dragleave",()=>dz.classList.remove("over"));dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");handle(e.dataTransfer.files)});
+  const loadList=async()=>{try{const L=await libList();const latest={};L.forEach(f=>{if(f.por&&!latest[f.por])latest[f.por]=f.id});
+      host.replaceChildren(el("div",{class:"card"},el("h3",{text:`File library (${fmt(L.length)})`}),L.length?table([
+        {l:"File",v:f=>f.name},{l:"Kind",v:f=>f.por?POR[f.por].l:"Other",f:f=>f.por?pill(POR[f.por].l+(latest[f.por]===f.id?" · in use":""),latest[f.por]===f.id?"p-ok":"p-idle"):"Other"},
+        {l:"Size",v:f=>f.size,f:f=>kb(f.size),num:1},{l:"Uploaded",v:f=>f.at,f:f=>whenTxt(f.at)},{l:"By",v:f=>f.by||""},
+        {l:"",v:f=>0,f:f=>el("span",{class:"rowbtns"},el("button",{class:"btn sm",onclick:async e=>{const bt=e.currentTarget;bt.disabled=true;try{const u=await libGet(f);await saveFile(f.name,new Blob([u],{type:f.mime||"application/octet-stream"}));footprint("products","download","Downloaded",f.name,null,kb(f.size))}catch(x){toast("Download failed: "+(x.message||x))}bt.disabled=false}},icon("dl"),"Download"),
+          el("button",{class:"btn sm",title:"Delete","aria-label":"Delete "+f.name,onclick:async()=>{if(!confirm(`Delete ${f.name} from the library?`))return;try{await libDel(f);footprint("products","delete","Deleted",f.name,null,"");toast("Deleted");loadList()}catch(x){toast("Delete failed: "+(x.message||x))}}},icon("trash")))}],L,{sort:3,dir:-1})
+        :el("p",{class:"hint",text:"No files yet."})))}catch(e){host.replaceChildren(el("p",{class:"diff",text:"Could not load the file library: "+(e.message||e)}))}};
+  b.append(dz,host,uploadHistory("products","Upload footprint — who uploaded, downloaded or deleted"));loadList()};
+
+INV_TABS.settings=b=>{const s=invSet();const st=Object.assign({},s);const W=invWindow();
+  const inp=(k,l,h,attrs)=>el("label",{},l,el("input",Object.assign({type:"number",value:st[k],oninput:e=>{st[k]=e.target.type==="month"?e.target.value:+e.target.value}},attrs||{})),el("span",{class:"hint",text:h}));
+  b.append(el("div",{class:"card mt"},el("h3",{text:"Min / Max settings"}),el("div",{class:"form invform"},
+    inp("sl","Service level","0.95 = 95% chance of not running out during a lead time. 0.90 leaner, 0.98 safer.",{step:"0.01",min:"0.5",max:"0.999"}),
+    inp("review","Review period (days)","How often you order. MAX = MIN + this many days of sales.",{min:"1",step:"1"}),
+    inp("leadDef","Default lead time (days)",`Used when a product has no PO history. Median across your POs: ${S.inv.meta&&S.inv.meta.ltAll!=null?S.inv.meta.ltAll+" days":"—"}.`,{min:"0",step:"1"}),
+    inp("lookback","History window (months)","How many months of sales to use.",{min:"1",max:"60",step:"1"}),
+    inp("start","Ignore sales before (month)",`Leave blank for automatic (${S.inv.meta&&S.inv.meta.autoStart||"—"}, when the POS went live).`,{type:"month",value:st.start||""}),
+    inp("lumpy","Project / lumpy if orders ≤","Few big orders: buy per job, not by Min/Max.",{min:"0",step:"1"}),
+    inp("occ","Occasional if weeks with sales <","Share of weeks, e.g. 0.25 = 25%.",{min:"0",max:"1",step:"0.05"})),
+    el("p",{class:"hint",text:"Current window: "+winText()}),
+    el("div",{class:"filters mt"},el("button",{class:"btn pri",onclick:async e=>{e.target.disabled=true;try{await S.db.doc("inv/settings").set(st);S.inv.settings=st;S._invCalc=null;toast("Settings saved");render(true)}catch(x){toast("Save failed: "+(x.message||x));e.target.disabled=false}}},"Save settings"),
+      el("button",{class:"btn",onclick:()=>{Object.assign(st,INV_DEF,{leadDef:S.inv.meta&&S.inv.meta.ltAll!=null?S.inv.meta.ltAll:INV_DEF.leadDef});S.inv.settings=Object.assign({},st);S._invCalc=null;render(true)}},"Reset to defaults"))))};
+
+document.head.append(el("style",{text:`
+.invtabs{flex-wrap:wrap;margin-top:6px}.invtabs button{white-space:nowrap}
+.colwrap{overflow-x:auto}.colc{width:100%;min-width:320px;height:auto;display:block}.colc .cx{font:600 11px var(--f-lab);fill:var(--muted)}.colc .cv{font:600 10px var(--f-num);fill:var(--fg)}.colc .colb:hover rect{opacity:.8}
+.formula{display:grid;gap:6px;font-size:14px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--panel2)}
+.invpop{width:min(760px,calc(100vw - 32px));max-height:88vh;overflow:auto;margin:6vh auto 0}
+.invform{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}.invform label{display:grid;gap:4px;font-weight:600}
+.rowbtns{display:inline-flex;gap:6px}.rowbtns .btn svg{width:14px;height:14px}
+.src .pill{margin:4px 0}
+.slots .slot{display:flex;flex-direction:column;gap:6px}.slots .slot .slot-btn{margin-top:auto;align-self:flex-start;cursor:pointer}.slots .slot.over{outline:2px dashed var(--acc);outline-offset:2px}.slots .slot.done{border-color:var(--ok)}
+.slot-body{grid-column:1/-1}.slot-body:empty{display:none}
+.duebar{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;margin-bottom:14px;border:1px solid var(--warn);background:var(--warn-soft);border-radius:var(--r)}.due-ic{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--warn);color:#fff;flex:none}.due-ic svg{width:20px;height:20px}
+.duechip{text-decoration:none;cursor:pointer}.duechip:hover{border-color:var(--acc)}
+@media (max-width:900px){.grid.g3.slots{grid-template-columns:1fr}}
+`}));
+
+/* ================= weekly uploads: slots, Monday reminder, footprint ================= */
+const DH_LABEL={inrico:"Inrico",jasper:"Telus Jasper",simplex:"Simplex",hologram:"Hologram"};
+const DH_DESC={inrico:"Companies, devices, licences — Inrico device export (.xlsx / .csv)",jasper:"SIM status, customer, plan — Jasper SIM export",simplex:"SIM status, company — Simplex SIM list",hologram:"SIM status, name — Hologram SIM list"};
+const WEEKLY_POR=["lines","contracts","items"];
+const whenTxt=t=>t?new Date(t).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"";
+function weekStart(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d}
+async function footprint(area,kind,label,file,rows,extra){if(!S.db)return;const at=new Date().toISOString(),me=S.me||{};
+  try{await S.db.doc("uplog/"+at.replace(/[^0-9]/g,"")+"-"+Math.random().toString(36).slice(2,6)).set({at,area,kind,label,file:String(file||"").slice(0,200),rows:rows==null?null:rows,extra:extra||"",by:me.name||"",byId:me.id||"",byEmail:me.email||""})}catch(_){}}
+let invUpOn=false;
+function invUpInit(){if(invUpOn||!S.db||!invOK())return;invUpOn=true;S.invUp=S.invUp||null;
+  S.db.doc("inv/uploads").onSnapshot(d=>{S.invUp=(d.exists&&d.data())||{};if(S.invBusy)return;if(S.view==="products"||S.view==="data"){render(true);return}buildRail();const b=$("#dueBan");const due=dueList();if(b){if(due.length)b.replaceWith(dueBanner(due));else b.remove()}else if(due.length)render(true)},()=>{S.invUp={}})}
+function dueList(){if(!invOK())return [];const ws=weekStart(),out=[];
+  for(const k of ["inrico","jasper","simplex","hologram"]){const m=(S.meta||{})[k]||{};const t=m.upAt||m.at;if(!t||new Date(t)<ws)out.push({area:"data",k,l:DH_LABEL[k]})}
+  if(S.invUp)for(const k of WEEKLY_POR){const m=S.invUp[k]||{};if(!m.at||new Date(m.at)<ws)out.push({area:"products",k,l:POR[k].l})}
+  return out}
+function dueBanner(due){const ws=weekStart();const go=x=>e=>{if(x.area==="products"){S.invTab="files"}};
+  return el("div",{class:"duebar",id:"dueBan",role:"status"},el("div",{class:"due-ic"},icon("upload")),
+    el("div",{style:"flex:1;min-width:0"},el("b",{text:`Weekly uploads — ${due.length} still needed for the week of ${ws.toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`}),
+      el("div",{class:"hint",text:"Shown to admins and managers. Each item disappears for everyone as soon as someone uploads it."}),
+      el("div",{class:"filters",style:"margin:8px 0 0"},due.map(x=>el("a",{class:"chip duechip",href:"#"+x.area,onclick:go(x)},el("span",{class:"dot bad"}),(x.area==="products"?"Point of Rental · ":"Data hub · ")+x.l)))))}
+function uploadHistory(area,title){const box=el("div",{},loaderNode("Loading upload history…"));const card=el("div",{class:"card mt"},el("h3",{text:title||"Upload footprint"}),box);
+  (async()=>{try{const q=await S.db.collection("uplog").orderBy("at","desc").limit(400).get();const L=q.docs.map(d=>d.data()).filter(x=>!area||x.area===area);
+    box.replaceChildren(L.length?table([{l:"When",v:x=>x.at,f:x=>whenTxt(x.at)},{l:"Who",v:x=>x.by||x.byEmail||"",f:x=>el("span",{title:x.byEmail||""},x.by||x.byEmail||"—")},{l:"Section",v:x=>x.area==="products"?"Products":"Data hub"},{l:"What",v:x=>x.label||x.kind},{l:"File",v:x=>x.file||""},{l:"Rows / size",v:x=>x.rows!=null?x.rows:x.extra||"",f:x=>x.rows!=null?fmt(x.rows)+(x.extra?" · "+x.extra:""):x.extra||"—"}],L,{sort:0,dir:-1,limit:50})
+      :el("p",{class:"hint",text:"No uploads recorded yet. From now on every upload is listed here with who did it."}))}
+    catch(e){box.replaceChildren(el("p",{class:"hint",text:"Upload history unavailable: "+(e.message||e)}))}})();
+  return card}
+/* Data hub: one upload slot per platform */
+function dataSlots(rows){const ws=weekStart(),can=invOK();const body=el("div",{class:"slot-body"});
+  const grid=el("div",{class:"grid g4 slots"},rows.map(([k,l,d])=>{const mm=S.meta[k]||{};const t=mm.upAt||mm.at;const age=mm.at?(Date.now()-new Date(mm.at))/DAY:null;const done=t&&new Date(t)>=ws;
+    const fi=el("input",{type:"file",accept:".xlsx,.xls,.csv",hidden:true,onchange:e=>go(e.target.files[0])});
+    const go=async f=>{if(!f)return;body.replaceChildren(el("div",{class:"card"},loaderNode("Reading "+f.name+" for "+DH_LABEL[k]+"…")));body.scrollIntoView({behavior:"smooth",block:"nearest"});
+      try{const p=await readSheet(f);if(!p.rows.length)throw new Error("No data rows found");const g=guessType(p.headers);const box=el("div",{class:"card"});body.replaceChildren(box);
+        if(g&&g!==k)box.append(el("p",{class:"diff",text:`Heads-up: this file looks like a ${DH_LABEL[g]||g} export, but you used the ${DH_LABEL[k]} slot. Check the columns below before importing.`}));
+        const mb=el("div");box.append(el("h3",{text:DH_LABEL[k]+" upload — check and import"}),mb);mapper(mb,p,f.name,k)}catch(e){body.replaceChildren(el("p",{class:"diff",text:"Could not read the file: "+(e.message||e)}))}};
+    const card=el("div",{class:"card src slot"+(done?" done":"")},el("div",{class:"src-h"},el("span",{class:"dot "+(age==null?"":age<=8?"ok":age<=15?"warn":"bad")}),el("b",{text:l}),done?el("span",{class:"pill p-ok",text:"✓ this week"}):el("span",{class:"pill p-bad",text:"due"})),
+      el("div",{class:"big mono",text:mm.count!=null?fmt(mm.count):"—"}),el("div",{class:"hint",text:DH_DESC[k]||d}),
+      el("div",{class:"hint",text:t?`Uploaded ${whenTxt(t)}${mm.by?" by "+mm.by:""}${mm.via&&mm.via!=="manual"?" · "+mm.via:""}`:"Not uploaded yet"}),mm.file?el("div",{class:"hint mono",style:"word-break:break-all",text:mm.file}):null,
+      can?el("label",{class:"btn sm pri slot-btn"},icon("upload"),"Upload "+DH_LABEL[k]+" file",fi):null);
+    if(can){card.addEventListener("dragover",e=>{e.preventDefault();card.classList.add("over")});card.addEventListener("dragleave",()=>card.classList.remove("over"));card.addEventListener("drop",e=>{e.preventDefault();card.classList.remove("over");go(e.dataTransfer.files[0])})}
+    return card}));
+  grid.append(body);return grid}
 
 /* ================= boot ================= */
 render();

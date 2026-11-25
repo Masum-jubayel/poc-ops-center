@@ -1,10 +1,11 @@
-/* POC Ops Center — standalone runtime: Firebase Auth + Firestore stand in for the claude.ai capabilities */
+/* POC Ops Center \u2014 standalone runtime: Firebase Auth + Firestore stand in for the claude.ai capabilities */
 (function(){
 "use strict";
 var CFG=window.POC_CONFIG||{};
 if(!CFG.firebase||!CFG.firebase.apiKey||/PASTE/.test(CFG.firebase.apiKey)){document.addEventListener("DOMContentLoaded",function(){var d=document.createElement("div");d.className="poc-login";d.innerHTML='<div class="poc-login-box"><h1>Setup needed</h1><p>Open <b>config.js</b> and paste your Firebase web app settings (see README, step 3).</p></div>';document.body.appendChild(d)});return}
 firebase.initializeApp(CFG.firebase);
 var auth=firebase.auth(),fs=firebase.firestore();
+try{auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)}catch(_){}
 var ownerEmail=String(CFG.ownerEmail||"").trim().toLowerCase();
 var resolveUser,userP=new Promise(function(r){resolveUser=r});
 var assetCache={};
@@ -18,13 +19,26 @@ function showLogin(msg){
   var old=document.getElementById("pocLogin");if(old)old.remove();
   var d=document.createElement("div");d.id="pocLogin";d.className="poc-login";
   d.innerHTML='<div class="poc-login-box"><div class="poc-mark">EM</div><h1>POC Ops Center</h1><p>Expert Mobile Communications</p>'+
-   '<button id="pocG" class="poc-btn">Sign in with Google</button><div class="poc-or">or get a sign-in link by email</div>'+
-   '<form id="pocE"><input id="pocEm" type="email" required placeholder="name@expertmobile.ca"><button class="poc-btn sec">Email me a link</button></form><p id="pocMsg" class="poc-msg">'+(msg||"")+'</p>'+
-   '<p class="poc-foot">Powered by Masum_Jubayel</p></div>';
+   '<form id="pocP" class="poc-pw"><input id="pocPe" type="email" required autocomplete="username" placeholder="Email"><input id="pocPp" type="password" required minlength="6" autocomplete="current-password" placeholder="Password">'+
+   '<button class="poc-btn">Sign in</button><div class="poc-links"><a href="#" id="pocNew">Create my password</a><a href="#" id="pocForgot">Forgot password?</a></div></form>'+
+   '<div class="poc-or">or</div><button id="pocG" class="poc-btn sec">Sign in with Google</button>'+
+   '<form id="pocE"><input id="pocEm" type="email" required placeholder="name@expertmobile.ca"><button class="poc-btn sec">Email me a sign-in link</button></form><p id="pocMsg" class="poc-msg">'+(msg||"")+'</p>'+
+   '<p class="poc-foot">Only people an admin has given access can open the dashboard.<br>Powered by Masum_Jubayel</p></div>';
   document.body.appendChild(d);
-  document.getElementById("pocG").onclick=function(){auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(function(e){document.getElementById("pocMsg").textContent=e.message})};
-  document.getElementById("pocE").onsubmit=function(e){e.preventDefault();var em=document.getElementById("pocEm").value.trim();
-    auth.sendSignInLinkToEmail(em,{url:location.origin+location.pathname,handleCodeInApp:true}).then(function(){try{localStorage.setItem("pocEmail",em)}catch(_){}document.getElementById("pocMsg").textContent="Check your inbox for the sign-in link (also the junk folder)."}).catch(function(e){document.getElementById("pocMsg").textContent=e.message})};
+  var say=function(t){document.getElementById("pocMsg").textContent=t};
+  var nice=function(e){var c=(e&&e.code)||"";if(/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c))return "Email or password is not right. New here or never set a password? Click \u201cCreate my password\u201d.";
+    if(/email-already-in-use/.test(c))return "This email already has an account. Sign in with your password, or click \u201cForgot password?\u201d to set a new one.";if(/weak-password/.test(c))return "Use at least 6 characters for the password.";
+    if(/too-many-requests/.test(c))return "Too many tries. Wait a few minutes or reset your password.";if(/operation-not-allowed/.test(c))return "Password sign-in is not turned on yet in Firebase (Authentication \u2192 Sign-in method \u2192 Email/Password).";return (e&&e.message)||String(e)};
+  var em=function(){return document.getElementById("pocPe").value.trim()},pw=function(){return document.getElementById("pocPp").value};
+  try{var last=localStorage.getItem("pocEmail");if(last)document.getElementById("pocPe").value=last}catch(_){}
+  document.getElementById("pocP").onsubmit=function(e){e.preventDefault();say("Signing in\u2026");try{localStorage.setItem("pocEmail",em())}catch(_){}auth.signInWithEmailAndPassword(em(),pw()).catch(function(x){say(nice(x))})};
+  document.getElementById("pocNew").onclick=function(e){e.preventDefault();if(!em()||pw().length<6){say("Type your work email and a new password (6+ characters), then click \u201cCreate my password\u201d.");return}
+    say("Creating your password\u2026");auth.createUserWithEmailAndPassword(em(),pw()).catch(function(x){say(nice(x))})};
+  document.getElementById("pocForgot").onclick=function(e){e.preventDefault();if(!em()){say("Type your email first, then click \u201cForgot password?\u201d.");return}
+    auth.sendPasswordResetEmail(em(),{url:location.origin+location.pathname}).then(function(){say("If that email has an account, a reset link is on its way (check junk too).")}).catch(function(x){say(nice(x))})};
+  document.getElementById("pocG").onclick=function(){auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(function(e){say(e.message)})};
+  document.getElementById("pocE").onsubmit=function(e){e.preventDefault();var em2=document.getElementById("pocEm").value.trim();
+    auth.sendSignInLinkToEmail(em2,{url:location.origin+location.pathname,handleCodeInApp:true}).then(function(){try{localStorage.setItem("pocEmail",em2)}catch(_){}say("Check your inbox for the sign-in link (also the junk folder).")}).catch(function(e){say(e.message)})};
 }
 if(auth.isSignInWithEmailLink(location.href)){var em=null;try{em=localStorage.getItem("pocEmail")}catch(_){}if(!em)em=prompt("Confirm your email to finish signing in:");
   auth.signInWithEmailLink(em,location.href).then(function(){history.replaceState(null,"",location.pathname)}).catch(function(e){showLogin(e.message)})}
@@ -39,7 +53,7 @@ auth.onAuthStateChanged(function(u){
   setTimeout(function(){var t=document.querySelector(".tb-actions");if(t&&!document.getElementById("pocOut")){var b=document.createElement("button");b.id="pocOut";b.className="ibtn";b.title="Sign out";b.setAttribute("aria-label","Sign out");b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>';b.onclick=function(){auth.signOut()};t.appendChild(b)}},1500);
 });
 function isOwner(u){return !!(u&&u.email&&u.email.toLowerCase()===ownerEmail)}
-/* Firestore cannot store arrays inside arrays — encode them as {__a:[...]} on write and decode on read */
+/* Firestore cannot store arrays inside arrays \u2014 encode them as {__a:[...]} on write and decode on read */
 function enc(v){if(Array.isArray(v))return v.map(function(x){return Array.isArray(x)?{__a:enc(x)}:enc(x)});if(v&&typeof v==="object"&&Object.getPrototypeOf(v)===Object.prototype){var o={};for(var k in v)if(v[k]!==undefined)o[k]=enc(v[k]);return o}return v}
 function dec(v){if(Array.isArray(v))return v.map(function(x){return (x&&typeof x==="object"&&!Array.isArray(x)&&Object.keys(x).length===1&&("__a" in x))?dec(x.__a):dec(x)});if(v&&typeof v==="object"&&Object.getPrototypeOf(v)===Object.prototype){var o={};for(var k in v)o[k]=dec(v[k]);return o}return v}
 function wdoc(sn){return {exists:sn.exists,id:sn.id,data:function(){return sn.exists?dec(sn.data()):undefined}}}
