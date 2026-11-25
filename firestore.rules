@@ -20,7 +20,7 @@ service cloud.firestore {
     function hasAccess() { return isOwner() || listed() || invited(); }
     function isAdmin()   { return isOwner() || (listed() && rolesDoc().users[request.auth.uid].role == 'admin') || (invited() && invRole() == 'admin'); }
     function isManager() { return isAdmin() || (listed() && rolesDoc().users[request.auth.uid].role == 'manager') || (invited() && invRole() == 'manager'); }
-    function privateColl(c) { return c in ['inv', 'invfiles', 'invchunks', 'uplog']; }
+    function privateColl(c) { return c in ['inv', 'invfiles', 'invchunks', 'uplog', 'guides', 'guidechunks']; }
 
     // Everyone who signs in may create their own profile (so admins can find them) and read the access list.
     match /profiles/{uid}  { allow read: if signedIn(); allow write: if signedIn() && request.auth.uid == uid; }
@@ -40,6 +40,9 @@ service cloud.firestore {
     match /inv/{id}        { allow read, write: if isManager(); }
     match /invfiles/{id}   { allow read, write: if isManager(); }
     match /invchunks/{id}  { allow read, write: if isManager(); }
+    // Help & guides: admins upload and release PDF guides; everyone with access reads released ones.
+    match /guides/{id}      { allow read: if isAdmin() || (hasAccess() && resource.data.released == true); allow write: if isAdmin(); }
+    match /guidechunks/{id} { allow read: if isAdmin() || (hasAccess() && get(/databases/$(database)/documents/guides/$(resource.data.g)).data.released == true); allow write: if isAdmin(); }
     // Everything else (companies, sims, settings, history, meta, log, system): read with access, write admins only.
     // The private collections above are excluded here, because any rule that allows access wins.
     match /{coll}/{id}     { allow read: if hasAccess() && !privateColl(coll); allow write: if isAdmin() && !privateColl(coll); }
