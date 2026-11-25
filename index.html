@@ -3057,7 +3057,7 @@ VIEWS.products=v=>{
   v.append(secH("Products & inventory","Point of Rental sales, best sellers, Min / Max and what to order. Admins and managers only.",el("button",{class:"btn sm pri",title:"Download the full Min / Max workbook (like Product_Min_Max.xlsx)",onclick:()=>invReport()},icon("dl"),"Excel report"),el("button",{class:"btn sm",onclick:()=>{S.invTab="files";render()}},icon("upload"),"Upload / files")));
   const body=el("div");v.append(body);
   if(!S.inv){body.append(loaderNode("Loading products…"));invLoad().then(()=>render(true)).catch(e=>body.replaceChildren(el("p",{class:"diff",text:"Could not load products: "+(e.message||e)+". If this says permission denied, publish the new firestore.rules."})));return}
-  const tabs=[["overview","Overview"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["files","Files"],["settings","Settings"]];
+  const tabs=[["overview","Overview"],["summary","Summary"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["files","Files"],["settings","Settings"]];
   body.append(el("div",{class:"seg invtabs"},tabs.map(([k,l])=>el("button",{class:S.invTab===k?"on":"",onclick:()=>{S.invTab=k;render(true)}},l))));
   const meta=S.inv.meta;
   if(!meta&&S.invTab!=="files"&&S.invTab!=="settings"){body.append(el("div",{class:"card mt"},el("h3",{text:"No product data yet"}),el("p",{text:"Open Files and upload the Point of Rental exports: Sales lines, Contracts and Item master (required), plus PO headers, PO lines and Vendors for real lead times."}),el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload files")));return}
@@ -3081,6 +3081,41 @@ INV_TABS.overview=b=>{const R=calcRows(),sold=R.filter(r=>r.sold>0);
   const top=(k,f)=>[...sold].sort((a,c)=>c[k]-a[k]).slice(0,10).map(r=>({l:r.n.slice(0,34),v:Math.round(r[k]),title:r.k,onClick:()=>invItem(r)}));
   b.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"Top 10 by units"}),hbars(top("sold"))),el("div",{class:"card"},el("h3",{text:"Top 10 by sales $"}),hbars(top("amt")))));
   b.append(el("div",{class:"card mt"},el("h3",{text:"Order these first (regular sellers)"}),invTable(re.filter(r=>r.pat==="Regular"),"order")))};
+
+/* Summary: every number is clickable and opens the exact product list behind it */
+INV_TABS.summary=b=>{const R=calcRows();const W=invWindow();
+  const sold=R.filter(r=>r.sold>0),re=R.filter(r=>r.status==="REORDER"||r.status==="OUT OF STOCK"),reg=re.filter(r=>r.pat==="Regular");
+  const S2=(f)=>R.filter(f),sum=(L,k)=>L.reduce((a,r)=>a+(r[k]||0),0);
+  const all=R.filter(r=>r.sold>0||r.oh>0),out=S2(r=>r.status==="OUT OF STOCK"),onord=S2(r=>r.status==="Out · on order"),over=S2(r=>r.status==="Above max"),dead=S2(r=>r.status==="No sales"),ok=S2(r=>r.status==="OK"),exc=S2(r=>r.excess>0);
+  const line=(label,val,sub,L,kind,cls)=>el("button",{class:"sumrow"+(cls?" "+cls:""),onclick:()=>invDrill(label,sub,L,kind),title:"Open the "+fmt(L.length)+" products"},
+    el("span",{class:"sl",text:label}),el("b",{class:"sv mono",text:val}),el("span",{class:"ss",text:sub}),el("span",{class:"sg",text:"View products →"}));
+  const sec=(t,...rows)=>el("div",{class:"card mt sumsec"},el("h3",{text:t}),rows);
+  b.append(el("p",{class:"hint mt",text:"Window: "+winText()+". Click any line to see exactly which products are behind the number, then search, sort or download them."}),
+    el("div",{class:"grid g2"},
+    sec("Sales",
+      line("Products in report",fmt(all.length),"Sold in the window or in stock",all,"all"),
+      line("Products sold in window",fmt(sold.length),`${fmt(sum(sold,"sold"))} units`,sold,"sold"),
+      line("Units sold",fmt(sum(sold,"sold")),`from ${fmt(sold.length)} products`,sold,"sold"),
+      line("Sales $",money(sum(sold,"amt")),"before tax, stock products",sold,"sales")),
+    sec("What to order",
+      line("Need to order now",fmt(re.length),`${fmt(sum(re,"order"))} units · ${money(sum(re,"val"))}`,re,"order","hot"),
+      line("of which out of stock",fmt(out.length),`${fmt(sum(out,"order"))} units · ${money(sum(out,"val"))}`,out,"order","hot"),
+      line("Regular sellers to order",fmt(reg.length),`${fmt(sum(reg,"order"))} units · ${money(sum(reg,"val"))} — buy these now`,reg,"order","hot"),
+      line("Out of stock but on order",fmt(onord.length),`${fmt(sum(onord,"oo"))} units already on order`,onord,"all")),
+    sec("Stock health",
+      line("Above MAX",fmt(over.length),`${money(over.reduce((a,r)=>a+Math.max(0,r.oh-r.max)*(r.c||0),0))} over max`,over,"over","warn"),
+      line("No sales in window",fmt(dead.length),`${money(sum(dead,"ohVal"))} of stock on hand`,dead,"dead","warn"),
+      line("Excess stock over MAX",money(sum(exc,"exVal")),`${fmt(exc.length)} products · ${fmt(sum(exc,"excess"))} units`,exc,"excess","warn"),
+      line("OK",fmt(ok.length),"between MIN and MAX",ok,"all","good")),
+    sec("Demand pattern & ABC",
+      ...["Regular","Occasional","Project / lumpy"].map(p=>{const L=S2(r=>r.pat===p);return line("Pattern — "+p,fmt(L.length),`${fmt(sum(L,"sold"))} units · ${money(sum(L,"amt"))}`,L,"all")}),
+      ...["A","B","C"].map(k=>{const L=S2(r=>r.abc===k);return line("ABC — "+k+" products",fmt(L.length),`${money(sum(L,"amt"))} sales · ${k==="A"?"top 80%":k==="B"?"next 15%":"last 5%"}`,L,"sales")}))))};
+document.head.append(el("style",{text:`
+.sumsec{display:flex;flex-direction:column;gap:4px}.sumsec h3{margin-bottom:6px}
+.sumrow{display:grid;grid-template-columns:minmax(0,1.3fr) auto minmax(0,1.4fr) auto;gap:12px;align-items:center;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--fg);cursor:pointer;font:inherit}
+.sumrow:hover{border-color:var(--acc);background:var(--acc-soft)}.sumrow .sl{font-weight:600}.sumrow .sv{font-size:18px;min-width:70px;text-align:right}.sumrow .ss{color:var(--muted);font-size:13px}.sumrow .sg{color:var(--acc);font-size:12px;font-weight:700;white-space:nowrap}
+.sumrow.hot .sv{color:var(--bad)}.sumrow.warn .sv{color:var(--warn)}.sumrow.good .sv{color:var(--ok)}
+@media (max-width:900px){.sumrow{grid-template-columns:1fr auto}.sumrow .ss,.sumrow .sg{grid-column:1/-1}}`}));
 function invMonths(){const P=(S.inv&&S.inv.prods)||[],acc={};for(const p of P)for(const ym in (p.m||{})){const a=acc[ym]||(acc[ym]={qty:0,amt:0,prods:0});a.qty+=p.m[ym][0];a.amt+=p.m[ym][1];a.prods++}
   const meta=S.inv.meta||{},auto=meta.autoStart||"",ex=(meta.exported||"").slice(0,7);
   return Object.keys(acc).sort().filter(ym=>!auto||ym>=auto).map(ym=>Object.assign({ym,partial:ym===ex},acc[ym]))}
@@ -3170,9 +3205,11 @@ function invDrill(title,sub,rows,kind){const host=el("div");let q="";
   const C={sold:[...base,num("Units sold",r=>r.sold),num("Sales $",r=>r.amt,r=>money(r.amt)),num("Orders",r=>r.ord),num("On hand",r=>r.oh),{l:"Last sale",v:r=>r.ls||""},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}],
     sales:[...base,num("Sales $",r=>r.amt,r=>money(r.amt)),num("Units sold",r=>r.sold),num("Avg price",r=>r.sold?r.amt/r.sold:0,r=>r.sold?money(r.amt/r.sold):"—"),num("Orders",r=>r.ord),{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}],
     order:null,
+    all:[...base,{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])},{l:"Pattern",v:r=>r.pat},{l:"ABC",v:r=>r.abc||""},num("On hand",r=>r.oh),num("On order",r=>r.oo),num("Sold",r=>r.sold),num("Sales $",r=>r.amt,r=>money(r.amt)),num("MIN",r=>r.min),num("MAX",r=>r.max),num("Order qty",r=>r.order),num("Order $",r=>r.val||0,r=>r.val!=null?money(r.val):"—"),num("Stock $",r=>r.ohVal||0,r=>r.ohVal!=null?money(r.ohVal):"—"),num("Days cover",r=>r.cover==null?-1:r.cover,r=>r.cover==null?"—":fmt(Math.round(r.cover))),num("Trend",r=>r.trend==null?-9:r.trend,r=>trendTxt(r.trend)),{l:"Last sale",v:r=>r.ls||""}],
+    excess:[...base,num("On hand",r=>r.oh),num("MAX",r=>r.max),num("Excess qty",r=>r.excess),num("Excess $",r=>r.exVal||0,r=>r.exVal!=null?money(r.exVal):"—"),num("Sold",r=>r.sold),{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}],
     over:[...base,num("On hand",r=>r.oh),num("MAX",r=>r.max),num("Over max",r=>r.oh-r.max),num("$ over max",r=>(r.oh-r.max)*(r.c||0),r=>r.c!=null?money((r.oh-r.max)*r.c):"—"),num("Sold",r=>r.sold),{l:"Pattern",v:r=>r.pat}],
     dead:[...base,num("On hand",r=>r.oh),num("Unit cost",r=>r.c||0,r=>r.c!=null?money(r.c):"—"),num("Stock $",r=>r.ohVal||0,r=>r.ohVal!=null?money(r.ohVal):"—"),{l:"Last sale",v:r=>r.ls||"",f:r=>r.ls||"never"}]};
-  const sortCol={sold:3,sales:3,over:6,dead:5};
+  const sortCol={sold:3,sales:3,over:6,dead:5,all:9,excess:6};
   const list=()=>rows.filter(r=>!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q));
   const cnt=el("b");
   const fill=()=>{const L=list();cnt.textContent=q?`${fmt(L.length)} of ${fmt(rows.length)} products`:`${fmt(rows.length)} products`;host.replaceChildren(kind==="order"?invTable(L,"order",5000):table(C[kind],L,{sort:sortCol[kind],dir:-1,onRow:r=>invItem(r),limit:5000}))};
