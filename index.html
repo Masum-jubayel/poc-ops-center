@@ -1506,7 +1506,7 @@ async function exportWorkbook(){
     add("Devices",DEV_COLS,m.devices.map(devRow));add("SIMs",SIM_COLS,m.simList.map(simRow));
     add("Alerts",["Priority","Title","Detail","Company"],m.alerts.map(a=>[a.sev,a.title,a.detail,a.co?a.co.name:""]));
     add("Matching",["Company",...MATCH_CATS.map(x=>x[1])],m.companies.map(c=>[c.name,...MATCH_CATS.map(([k])=>c.devices.filter(d=>d.mc===k).length)]));
-    const out=X.write(wb,{bookType:"xlsx",type:"array"});await saveFile("POC-Operations-"+stamp()+".xlsx",new Uint8Array(out));logAct("export","Excel workbook")}catch(e){toast("Export failed: "+(e.message||e))}}
+    const out=X.write(wb,{bookType:"xlsx",type:"array",compression:true});await saveFile("POC-Operations-"+stamp()+".xlsx",new Uint8Array(out));logAct("export","Excel workbook")}catch(e){toast("Export failed: "+(e.message||e))}}
 async function exportBackup(){
   if(S.role!=="admin")return;const all=async c=>(await S.db.collection(c).limit(5000).get()).docs.map(d=>({id:d.id,data:d.data()}));
   try{toast("Preparing backup…");const b={type:"poc-backup",v:1,at:new Date().toISOString(),companies:await all("companies"),sims:await all("sims"),history:await all("history"),actions:await all("actions"),fleetmap:await all("fleetmap"),system:await all("system"),settings:S.settings,roles:S.roles,meta:S.meta};
@@ -1762,7 +1762,7 @@ async function exportAny(name,headers,rows,fmtx){
   const fn=name.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-")+"-"+stamp();
   try{if(fmtx==="csv"){const esc=v=>{v=v==null?"":String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};await saveFile(fn+".csv","﻿"+[headers,...rows].map(r=>r.map(esc).join(",")).join("\r\n"))}
     else if(fmtx==="json"){await saveFile(fn+".json",JSON.stringify(rows.map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]??""]))),null,1))}
-    else{const X=await loadXLSX();const ws=X.utils.aoa_to_sheet([headers,...rows]);ws["!cols"]=headers.map((h,i)=>({wch:Math.min(48,Math.max(String(h).length,...rows.slice(0,200).map(r=>String(r[i]??"").length))+2)}));ws["!autofilter"]={ref:X.utils.encode_range({s:{r:0,c:0},e:{r:rows.length,c:headers.length-1}})};const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,name.slice(0,31).replace(/[\\\/\?\*\[\]:]/g," "));await saveFile(fn+".xlsx",new Uint8Array(X.write(wb,{bookType:"xlsx",type:"array"})))}
+    else{const X=await loadXLSX();const ws=X.utils.aoa_to_sheet([headers,...rows]);ws["!cols"]=headers.map((h,i)=>({wch:Math.min(48,Math.max(String(h).length,...rows.slice(0,200).map(r=>String(r[i]??"").length))+2)}));ws["!autofilter"]={ref:X.utils.encode_range({s:{r:0,c:0},e:{r:rows.length,c:headers.length-1}})};const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,name.slice(0,31).replace(/[\\\/\?\*\[\]:]/g," "));await saveFile(fn+".xlsx",new Uint8Array(X.write(wb,{bookType:"xlsx",type:"array",compression:true})))}
     logAct("download",`${name} · ${fmt(rows.length)} rows · ${fmtx.toUpperCase()}`)}catch(e){toast("Download failed: "+(e.message||e))}}
 const CO_COLS=["Company","Agent","Inrico ID","Devices","Online","Active","Deactivated","Expiring","Matched","Match %","Idle SIMs","Idle cost/mo","SIM off","High alerts","Medium alerts","Health %"];
 const coRow=c=>[c.name,c.agent,c.id,c.n,c.online,c.valid,c.deact,c.expiring,c.matched,c.matchPct??"",c.waste,c.wasteCost,c.nosig,c.high,c.med,c.health??""];
@@ -1921,7 +1921,7 @@ async function fmDownload(cos,fmtx){
     else if(fmtx==="csv"){const esc=v=>{v=v==null?"":String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};const lines=[];for(const co of cos){const t=fmTable(co,S.fleet[fmKey(co)]);if(cos.length>1)lines.push(["Company",co.name]);else t.top.forEach(r=>lines.push(r));lines.push([]);lines.push(cos.length>1?["Company",...t.headers]:t.headers);t.body.forEach(r=>lines.push(cos.length>1?[co.name,...r]:r));lines.push([])}await saveFile(safe+".csv","﻿"+lines.map(r=>r.map(esc).join(",")).join("\r\n"))}
     else{const X=await loadXLSX();const wb=X.utils.book_new();const used=new Set();for(const co of cos){const t=fmTable(co,S.fleet[fmKey(co)]);const aoa=[["Fleet map — POC"],[],...t.top,[],t.headers,...t.body];const ws=X.utils.aoa_to_sheet(aoa);ws["!cols"]=FM_COLS.map(c=>({wch:Math.round(c[3]/7)}));ws["!merges"]=[{s:{r:0,c:0},e:{r:0,c:5}}];
       let sn=(cos.length===1?"POC":co.name).replace(/[\\\/\?\*\[\]:]/g," ").slice(0,31)||"Sheet";let k=2;while(used.has(sn))sn=sn.slice(0,28)+" "+k++;used.add(sn);X.utils.book_append_sheet(wb,ws,sn)}
-      await saveFile(safe+".xlsx",new Uint8Array(X.write(wb,{bookType:"xlsx",type:"array"})))}
+      await saveFile(safe+".xlsx",new Uint8Array(X.write(wb,{bookType:"xlsx",type:"array",compression:true})))}
     logAct("download",`Fleet map · ${cos.length===1?cos[0].name:cos.length+" companies"} · ${fmtx.toUpperCase()}`)}catch(e){toast("Download failed: "+(e.message||e))}}
 NAV.splice(NAV.findIndex(n=>n[0]==="compare")+1,0,["fleet","Fleet map"]);
 const route0=route;
@@ -2946,8 +2946,8 @@ function crunch(T){
   const I=k=>it.ix(k),num={},grp=new Map();
   for(const r of it.rows){const key=String(r[I("KEY")]||"").trim();if(!key)continue;const pk=key.replace(/#\d+$/,"").toUpperCase();
     const q=+r[I("QTY")]||0,type=(r[I("TYPE")]||"").trim(),inact=/^true$/i.test(r[I("Inactive")]||"");
-    num[(r[I("NUM")]||"").trim()]=pk;let g=grp.get(pk);if(!g){g={names:[],types:[],oh:0,cost:[],sell:[],vend:[],ns:true};grp.set(pk,g)}
-    g.names.push((r[I("Name")]||"").trim());g.types.push(type);if(!inact)g.oh+=Math.max(0,q);
+    num[(r[I("NUM")]||"").trim()]=pk;let g=grp.get(pk);if(!g){g={names:[],types:[],oh:0,cost:[],sell:[],vend:[],cq:[],ns:true};grp.set(pk,g)}
+    g.names.push((r[I("Name")]||"").trim());if(I("CaseQty")>=0){const cq=+r[I("CaseQty")];if(cq>1)g.cq.push(cq)}g.types.push(type);if(!inact)g.oh+=Math.max(0,q);
     const pp=+r[I("PURP")];if(pp>0)g.cost.push(pp);const sp=+r[I("SELL")];if(!isNaN(sp))g.sell.push(sp);const vn=+r[I("VendorNumber1")];if(vn>0)g.vend.push(vn);
     if(!(q>=9000||["M","T","V"].includes(type)))g.ns=false}
   // contracts
@@ -2972,7 +2972,7 @@ function crunch(T){
   const prods=[];
   for(const [pk,g] of grp){const s=P.get(pk);if(g.ns)continue;const name=modeOf(g.names.filter(Boolean))||pk;if(NONSTOCK_RX.test(name)&&!/cable|coax|kit/i.test(name))continue;
     if(!s&&g.oh<=0)continue;const ven=modeOf(g.vend);let lt=median(ltP.get(pk)||[]),lts="item";if(lt==null&&ven!=null){lt=median(ltV.get(String(ven))||[]);lts=lt==null?"":"vendor"}if(lt==null)lts="";
-    const r={k:pk,n:name,t:modeOf(g.types)||"",v:ven!=null?(vname[String(ven)]||String(ven)):"",oh:g.oh,oo:oo.get(pk)||0,c:median(g.cost),s:median(g.sell),lt,lts};
+    const r={k:pk,n:name,t:modeOf(g.types)||"",v:ven!=null?(vname[String(ven)]||String(ven)):"",oh:g.oh,oo:oo.get(pk)||0,c:median(g.cost),s:median(g.sell),lt,lts};if(g.cq.length)r.cq=modeOf(g.cq);
     if(s){r.m=s.m;r.w=s.w;r.ls=s.ls.toISOString().slice(0,10)}prods.push(r)}
   return {prods,first:first&&first.toISOString().slice(0,10),last:last&&last.toISOString().slice(0,10),ltAll:median(ltAll),
     counts:{items:it.rows.length,contracts:tr.rows.length,lines:li.rows.length}}}
@@ -2988,14 +2988,21 @@ function invWindow(){const st=invSet(),meta=(S.inv&&S.inv.meta)||{};const end=me
   if(fixed&&fixed>start)start=fixed;else if(!fixed&&auto&&auto>start)start=auto;
   const days=Math.max(1,Math.round((end-start)/DAY));return {start,end,days,weeks:Math.max(1,Math.ceil(days/7)),z:normInv(Math.min(.999,Math.max(.5,+st.sl||.95)))}}
 function invCalc(){const P=(S.inv&&S.inv.prods)||[];const st=invSet(),W=invWindow();const sym=ymOf(W.start),eym=ymOf(W.end),w0=wkOf(W.start),w1=wkOf(new Date(W.end-DAY));
-  return P.map(p=>{let sold=0,amt=0,ord=0;for(const ym in (p.m||{}))if(ym>=sym&&ym<=eym){sold+=p.m[ym][0];amt+=p.m[ym][1];ord+=p.m[ym][2]}
+  const fullM=invMonths().map(m=>m.ym).filter(ym=>ym<eym),l3=fullM.slice(-3),p3=fullM.slice(-6,-3);
+  const R=P.map(p=>{let sold=0,amt=0,ord=0;for(const ym in (p.m||{}))if(ym>=sym&&ym<=eym){sold+=p.m[ym][0];amt+=p.m[ym][1];ord+=p.m[ym][2]}
     let s1=0,s2=0,wks=0;for(const k in (p.w||{})){const i=+k;if(i<w0||i>w1)continue;const q=p.w[k];s1+=q;s2+=q*q;if(q>0)wks++}
     const n=w1-w0+1,mean=s1/n,sd=n>1?Math.sqrt(Math.max(0,(s2-n*mean*mean)/(n-1))):0;
     const lt=p.lt!=null?p.lt:+st.leadDef,daily=sold/W.days,ss=W.z*(sd/Math.sqrt(7))*Math.sqrt(lt);
-    const min=sold>0?Math.ceil(daily*lt+ss-1e-9):0,max=sold>0?Math.ceil(min+daily*(+st.review)-1e-9):0,av=p.oh+p.oo,order=sold>0&&av<=min?Math.max(0,max-av):0;
+    const min=sold>0?Math.ceil(daily*lt+ss-1e-9):0,max=sold>0?Math.ceil(min+daily*(+st.review)-1e-9):0,av=p.oh+p.oo;
+    let order=sold>0&&av<=min?Math.max(0,max-av):0;const cq=p.cq>1?p.cq:0;if(order&&cq)order=Math.ceil(order/cq)*cq;
     const status=sold<=0?(p.oh>0?"No sales":"—"):p.oh<=0?(p.oo>0?"Out · on order":"OUT OF STOCK"):av<=min?"REORDER":p.oh>max?"Above max":"OK";
     const pat=sold<=0?"—":ord<=(+st.lumpy)?"Project / lumpy":wks<n*(+st.occ)?"Occasional":"Regular";
-    return Object.assign({},p,{sold,amt,ord,wks,sd,daily,ltU:lt,ss,min,max,av,order,status,pat,val:p.c!=null?order*p.c:null,ohVal:p.c!=null?p.oh*p.c:null})})}
+    const cover=daily>0?p.oh/daily:null,outDate=cover!=null?new Date(+W.end+cover*DAY).toISOString().slice(0,10):null;
+    const q3=l3.reduce((a,ym)=>a+((p.m||{})[ym]?p.m[ym][0]:0),0),q6=p3.reduce((a,ym)=>a+((p.m||{})[ym]?p.m[ym][0]:0),0),trend=q6>0?(q3-q6)/q6:(q3>0?1:null);
+    const excess=sold>0?Math.max(0,p.oh-max):p.oh;
+    return Object.assign({},p,{sold,amt,ord,wks,sd,daily,ltU:lt,ss,min,max,av,order,cq,status,pat,cover,outDate,q3,q6,trend,excess,exVal:p.c!=null?excess*p.c:null,val:p.c!=null?order*p.c:null,ohVal:p.c!=null?p.oh*p.c:null})});
+  const sold=R.filter(r=>r.amt>0).sort((a,b)=>b.amt-a.amt),tot=sold.reduce((a,r)=>a+r.amt,0);let cum=0;for(const r of sold){cum+=r.amt;r.abc=cum/tot<=.8?"A":cum/tot<=.95?"B":"C"}
+  return R}
 
 /* ---------- Firestore load / save ---------- */
 async function invLoad(force){if(S.inv&&!force)return;if(!S.db)throw new Error("No database");
@@ -3047,7 +3054,7 @@ const mon=ym=>{const [y,m]=ym.split("-");return new Date(+y,+m-1,1).toLocaleDate
 S.invTab=S.invTab||"overview";
 VIEWS.products=v=>{
   if(!invOK()){v.append(el("div",{class:"empty"},el("h3",{text:"Admins and managers only"}),el("p",{text:"Ask an admin for the manager role to see products and inventory."})));return}
-  v.append(secH("Products & inventory","Point of Rental sales, best sellers, Min / Max and what to order. Admins and managers only.",el("button",{class:"btn sm",onclick:()=>{S.invTab="files";render()}},icon("upload"),"Upload / files")));
+  v.append(secH("Products & inventory","Point of Rental sales, best sellers, Min / Max and what to order. Admins and managers only.",el("button",{class:"btn sm pri",title:"Download the full Min / Max workbook (like Product_Min_Max.xlsx)",onclick:()=>invReport()},icon("dl"),"Excel report"),el("button",{class:"btn sm",onclick:()=>{S.invTab="files";render()}},icon("upload"),"Upload / files")));
   const body=el("div");v.append(body);
   if(!S.inv){body.append(loaderNode("Loading products…"));invLoad().then(()=>render(true)).catch(e=>body.replaceChildren(el("p",{class:"diff",text:"Could not load products: "+(e.message||e)+". If this says permission denied, publish the new firestore.rules."})));return}
   const tabs=[["overview","Overview"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["files","Files"],["settings","Settings"]];
@@ -3122,22 +3129,28 @@ INV_TABS.best=b=>{const P=calcRows().filter(r=>r.m),M=invMonths().map(m=>m.ym);l
   b.append(el("div",{class:"filters mt"},ps,bs,expBtn("Best-sellers",["Rank","Product","Description","Units","Sales $","Orders","On hand"],()=>{const t=[];host.querySelectorAll("tbody tr").forEach(tr=>t.push([...tr.children].slice(0,7).map(td=>td.textContent)));return t})),host);fill()};
 
 function invTable(rows,kind,lim){const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Vendor",v:r=>r.v},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"MIN",v:r=>r.min,num:1},{l:"MAX",v:r=>r.max,num:1},
-  {l:"Order qty",v:r=>r.order,f:r=>r.order?el("b",{text:fmt(r.order)}):"0",num:1},{l:"Order $",v:r=>r.val||0,f:r=>r.val!=null?money(r.val):"—",num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
+  {l:"Order qty",v:r=>r.order,f:r=>r.order?el("b",{text:fmt(r.order)}):"0",num:1},{l:"Order $",v:r=>r.val||0,f:r=>r.val!=null?money(r.val):"—",num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Days cover",v:r=>r.cover==null?-1:r.cover,f:r=>r.cover==null?"—":fmt(Math.round(r.cover)),num:1},{l:"ABC",v:r=>r.abc||"",f:r=>r.abc?pill(r.abc,r.abc==="A"?"p-ok":r.abc==="B"?"p-warn":"p-idle"):"—"},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
   return table(cols,rows,{sort:kind==="order"?8:9,dir:-1,onRow:invItem,limit:lim||300})}
-const MM_HEAD=["Product","Description","Type","Vendor","On hand","On order","Sold in window","Sales $ in window","Orders","Weeks with sales","Weekly std dev","Lead time days","Lead time from","Avg daily demand","Safety stock","MIN","MAX","Order qty","Unit cost","Order $","Status","Pattern","Last sale"];
-const mmRow=r=>[r.k,r.n,r.t,r.v,r.oh,r.oo,r.sold,Math.round(r.amt*100)/100,r.ord,r.wks,Math.round(r.sd*100)/100,Math.round(r.ltU*10)/10,r.lts?r.lts+" PO history":"default",Math.round(r.daily*1000)/1000,Math.round(r.ss*10)/10,r.min,r.max,r.order,r.c!=null?Math.round(r.c*100)/100:"",r.val!=null?Math.round(r.val*100)/100:"",r.status,r.pat,r.ls||""];
+const MM_HEAD=["Product","Description","Type","Vendor","On hand","On order","Sold in window","Sales $ in window","Orders","Weeks with sales","Weekly std dev","Lead time days","Lead time from","Avg daily demand","Safety stock","MIN","MAX","Order qty","Case qty","Unit cost","Order $","Status","Pattern","ABC class","Days of cover","Est. stock-out date","Last 3 months units","Previous 3 months units","Trend %","Excess over MAX","Excess $","Last sale"];
+const mmRow=r=>[r.k,r.n,r.t,r.v,r.oh,r.oo,r.sold,Math.round(r.amt*100)/100,r.ord,r.wks,Math.round(r.sd*100)/100,Math.round(r.ltU*10)/10,r.lts?r.lts+" PO history":"default",Math.round(r.daily*1000)/1000,Math.round(r.ss*10)/10,r.min,r.max,r.order,r.cq||"",r.c!=null?Math.round(r.c*100)/100:"",r.val!=null?Math.round(r.val*100)/100:"",r.status,r.pat,r.abc||"",r.cover!=null?Math.round(r.cover):"",r.outDate||"",r.q3,r.q6,r.trend!=null?Math.round(r.trend*100):"",r.excess,r.exVal!=null?Math.round(r.exVal*100)/100:"",r.ls||""];
+const trendTxt=t=>t==null?"—":(t>0?"▲ ":t<0?"▼ ":"")+Math.round(Math.abs(t)*100)+"%";
 
 INV_TABS.order=b=>{const R=calcRows();let pat="Regular",q="";const host=el("div");
   const list=()=>R.filter(r=>(r.status==="REORDER"||r.status==="OUT OF STOCK")&&(pat==="all"||r.pat===pat)&&(!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q)));
-  const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{text:`${fmt(L.length)} products · ${fmt(L.reduce((a,r)=>a+r.order,0))} units · ${money(L.reduce((a,r)=>a+(r.val||0),0))}`})),invTable(L,"order"))};
+  const qi=el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}});
+  const fill=()=>{const L=list();const vm=new Map();for(const r of L){const k=r.v||"(no vendor)";const x=vm.get(k)||{v:k,n:0,u:0,d:0};x.n++;x.u+=r.order;x.d+=r.val||0;vm.set(k,x)}
+    host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} products · ${fmt(L.reduce((a,r)=>a+r.order,0))} units · ${money(L.reduce((a,r)=>a+(r.val||0),0))}`})),
+      el("details",{class:"card mt",open:vm.size<=12?true:null},el("summary",{style:"cursor:pointer;font-weight:700",text:`Order by vendor (${fmt(vm.size)} vendors) — click a vendor to filter`}),
+        table([{l:"Vendor",v:x=>x.v},{l:"Products",v:x=>x.n,num:1},{l:"Units",v:x=>x.u,num:1},{l:"Order $",v:x=>x.d,f:x=>money(x.d),num:1}],[...vm.values()],{sort:3,dir:-1,limit:100,onRow:x=>{qi.value=x.v==="(no vendor)"?"":x.v;q=qi.value.toLowerCase();fill()}})),
+      el("div",{class:"mt"},invTable(L,"order",2000)))};
   const ps=el("select",{onchange:e=>{pat=e.target.value;fill()}},[["Regular","Regular sellers (recommended)"],["Occasional","Occasional sellers"],["Project / lumpy","Project / lumpy"],["all","All"]].map(([k,l])=>el("option",{value:k},l)));
   b.append(el("p",{class:"hint mt",text:"Products whose on hand + on order is at or below MIN. Order qty brings them back up to MAX. Project / lumpy items sold in 3 orders or fewer — buy those per job. * = default lead time (no PO history)."}),
-    el("div",{class:"filters"},ps,el("input",{type:"search",placeholder:"Search product or vendor…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Purchase-list",MM_HEAD,()=>list().map(mmRow))),host);fill()};
+    el("div",{class:"filters"},ps,qi,expBtn("Purchase-list",MM_HEAD,()=>list().map(mmRow)),el("button",{class:"btn sm pri",onclick:()=>invReport()},icon("dl"),"Excel report")),host);fill()};
 
 INV_TABS.minmax=b=>{const R=calcRows();let st="all",q="";const host=el("div");const W=invWindow(),s=invSet();
   const list=()=>R.filter(r=>(st==="all"||r.status===st||(st==="sold"&&r.sold>0))&&(!q||(r.k+" "+r.n+" "+r.v).toLowerCase().includes(q)));
   const cols=[{l:"Product",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"On hand",v:r=>r.oh,num:1},{l:"On order",v:r=>r.oo,num:1},{l:"Sold",v:r=>r.sold,num:1},{l:"Avg / day",v:r=>r.daily,f:r=>(Math.round(r.daily*100)/100).toFixed(2),num:1},{l:"Std dev / wk",v:r=>r.sd,f:r=>(Math.round(r.sd*10)/10).toFixed(1),num:1},
-    {l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Safety stock",v:r=>r.ss,f:r=>fmt(Math.round(r.ss)),num:1},{l:"MIN",v:r=>r.min,f:r=>el("b",{text:fmt(r.min)}),num:1},{l:"MAX",v:r=>r.max,f:r=>el("b",{text:fmt(r.max)}),num:1},{l:"Order qty",v:r=>r.order,num:1},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
+    {l:"Lead days",v:r=>r.ltU,f:r=>fmt(Math.round(r.ltU))+(r.lts?"":"*"),num:1},{l:"Safety stock",v:r=>r.ss,f:r=>fmt(Math.round(r.ss)),num:1},{l:"MIN",v:r=>r.min,f:r=>el("b",{text:fmt(r.min)}),num:1},{l:"MAX",v:r=>r.max,f:r=>el("b",{text:fmt(r.max)}),num:1},{l:"Order qty",v:r=>r.order,num:1},{l:"Days cover",v:r=>r.cover==null?-1:r.cover,f:r=>r.cover==null?"—":fmt(Math.round(r.cover)),num:1},{l:"Trend",v:r=>r.trend==null?-9:r.trend,f:r=>trendTxt(r.trend),num:1},{l:"ABC",v:r=>r.abc||""},{l:"Pattern",v:r=>r.pat},{l:"Status",v:r=>r.status,f:r=>pill(r.status,PSTAT[r.status])}];
   const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} products · ${fmt(L.reduce((a,r)=>a+r.oh,0))} on hand · ${money(L.reduce((a,r)=>a+(r.ohVal||0),0))} stock · ${fmt(L.reduce((a,r)=>a+r.order,0))} to order (${money(L.reduce((a,r)=>a+(r.val||0),0))})`})),table(cols,L,{sort:4,dir:-1,onRow:invItem}))};
   const ss=el("select",{onchange:e=>{st=e.target.value;fill()}},[["all","All products"],["sold","Sold in window"],["OUT OF STOCK","Out of stock"],["REORDER","Reorder"],["Out · on order","Out · on order"],["OK","OK"],["Above max","Above max"],["No sales","No sales (dead stock)"]].map(([k,l])=>el("option",{value:k},l)));
   b.append(el("div",{class:"card mt"},el("h3",{text:"How MIN and MAX are worked out"}),el("div",{class:"formula"},
@@ -3256,6 +3269,95 @@ document.head.append(el("style",{text:`
 .duechip{text-decoration:none;cursor:pointer}.duechip:hover{border-color:var(--acc)}
 @media (max-width:900px){.grid.g3.slots{grid-template-columns:1fr}}
 `}));
+
+
+/* ---------- Excel report: full Min / Max workbook with live formulas (like Product_Min_Max.xlsx) ---------- */
+async function invReport(){
+  if(!S.inv||!S.inv.meta){toast("Upload the Point of Rental files first.");return}
+  if(!can("export")){toast("Your role cannot download data.");return}
+  toast("Building the Excel report…",3000);
+  try{const X=await loadXLSX();const R=calcRows(),W=invWindow(),st=invSet(),meta=S.inv.meta;const wb=X.utils.book_new();
+    const C=(r,c)=>X.utils.encode_cell({r,c});const N=(v,z)=>v==null||v===""?{t:"s",v:""}:{t:"n",v:+v,z};const T=v=>({t:"s",v:v==null?"":String(v)});
+    const F=(f,v,z,t)=>({t:t||(typeof v==="string"?"s":"n"),f,v:v==null?(t==="s"?"":0):v,z});
+    const D=d=>{const dt=d instanceof Date?d:new Date(d+"T00:00:00");return {t:"n",v:(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate())-Date.UTC(1899,11,30))/DAY,z:"yyyy-mm-dd"}};
+    const sheet=(rows,widths)=>{const ws={};let mr=0,mc=0;rows.forEach((row,r)=>{(row||[]).forEach((cell,c)=>{if(cell==null)return;ws[C(r,c)]=typeof cell==="object"&&"t" in cell?cell:(typeof cell==="number"?N(cell):T(cell));mc=Math.max(mc,c)});mr=Math.max(mr,r)});
+      ws["!ref"]=X.utils.encode_range({s:{r:0,c:0},e:{r:mr,c:mc}});if(widths)ws["!cols"]=widths.map(w=>({wch:w}));return ws};
+    const endIncl=new Date(+W.end-DAY);
+    // Settings
+    const SET=[["Min / Max settings — change the numbers in column B and every formula recalculates"],[],
+      ["History start",D(W.start),"First day of sales used"],["History end",D(endIncl),"Last day of sales used (POS export date)"],
+      ["Days in history",F("B4-B3+1",W.days,"0"),"Formula"],["Service level",N(+st.sl,"0%"),"0.95 = 95% chance of not running out during a lead time"],
+      ["Z-score",F("NORMSINV(B6)",W.z,"0.00"),"Formula from service level"],["Review period (days)",N(+st.review,"0"),"How often you order — MAX = MIN + this many days of sales"],
+      ["Default lead time (days)",N(+st.leadDef,"0"),"Used when a product has no purchase-order history"],["Project / lumpy if orders ≤",N(+st.lumpy,"0"),"Few big orders — buy per job"],
+      ["Occasional if weeks with sales <",N(+st.occ,"0%"),"Share of weeks with at least one sale"],["Weeks in history",F("ROUNDUP(B5/7,0)",W.weeks,"0"),"Formula"],[],
+      ["How it is calculated"],["Avg daily demand = units sold ÷ days in history"],["Safety stock = Z × (weekly std dev ÷ √7) × √lead time"],
+      ["MIN (reorder point) = avg daily × lead time + safety stock, rounded up"],["MAX (order up to) = MIN + avg daily × review period, rounded up"],
+      ["Order qty = MAX − (on hand + on order) when on hand + on order ≤ MIN, rounded up to the case quantity"],["Days of cover = on hand ÷ avg daily demand · Stock-out date = history end + days of cover"],
+      ["ABC: A = products making the first 80% of sales $, B = next 15%, C = last 5%"],["Trend = last 3 full months vs the 3 months before"],
+      [],["Data: Point of Rental exports "+Object.values(meta.sources&&meta.sources.files||{}).join(", ")],["Report made "+new Date().toLocaleString("en-CA")+" by "+((S.me&&S.me.name)||"")]];
+    // Min-Max with formulas
+    const H=["Product Key","Description","Type","Vendor","On Hand","On Order","Qty Sold","Sales $","# Orders","Weeks w/ Sales","Weekly Std Dev","Lead Time (PO history)","Lead Time Source","Case Qty",
+      "Avg Daily Demand","Lead Time Used","Safety Stock","MIN","MAX","Available (OH+OO)","Order Qty","Order $","Unit Cost","Status","Pattern","ABC","Days of Cover","Est. Stock-out","Last 3 Mo Units","Prev 3 Mo Units","Trend %","Excess over MAX","Excess $","Last Sale"];
+    const rows=[...R].filter(r=>r.sold>0||r.oh>0).sort((a,b)=>b.sold-a.sold||b.oh-a.oh);const MM=[H];
+    rows.forEach((r,i)=>{const n=i+2;MM.push([r.k,r.n,r.t,r.v,N(r.oh,"#,##0"),N(r.oo,"#,##0"),N(r.sold,"#,##0"),N(Math.round(r.amt*100)/100,"$#,##0.00"),N(r.ord),N(r.wks),N(Math.round(r.sd*10000)/10000,"0.00"),
+      r.lts?N(r.lt,"0.0"):T(""),r.lts?r.lts+" PO history":"Default (Settings)",r.cq?N(r.cq):T(""),
+      F(`G${n}/Settings!$B$5`,r.daily,"0.000"),F(`IF(L${n}="",Settings!$B$9,L${n})`,r.ltU,"0.0"),F(`Settings!$B$7*(K${n}/SQRT(7))*SQRT(P${n})`,r.ss,"0.0"),
+      F(`IF(G${n}>0,ROUNDUP(O${n}*P${n}+Q${n},0),0)`,r.min,"#,##0"),F(`IF(G${n}>0,ROUNDUP(R${n}+O${n}*Settings!$B$8,0),0)`,r.max,"#,##0"),F(`E${n}+F${n}`,r.av,"#,##0"),
+      F(`IF(AND(G${n}>0,T${n}<=R${n}),IF(N(N${n})>1,CEILING(S${n}-T${n},N${n}),S${n}-T${n}),0)`,r.order,"#,##0"),F(`IF(W${n}="","",U${n}*W${n})`,r.val==null?"":r.val,"$#,##0.00",r.val==null?"s":"n"),
+      r.c!=null?N(Math.round(r.c*100)/100,"$#,##0.00"):T(""),
+      F(`IF(G${n}<=0,IF(E${n}>0,"No sales","—"),IF(E${n}<=0,IF(F${n}>0,"Out · on order","OUT OF STOCK"),IF(T${n}<=R${n},"REORDER",IF(E${n}>S${n},"Above max","OK"))))`,r.status,null,"s"),
+      F(`IF(G${n}<=0,"—",IF(I${n}<=Settings!$B$10,"Project / lumpy",IF(J${n}<Settings!$B$12*Settings!$B$11,"Occasional","Regular")))`,r.pat,null,"s"),
+      r.abc||"",F(`IF(O${n}>0,E${n}/O${n},"")`,r.cover==null?"":r.cover,"#,##0",r.cover==null?"s":"n"),F(`IF(O${n}>0,Settings!$B$4+1+ROUND(AA${n},0),"")`,r.outDate?D(new Date(+W.end+Math.round(r.cover)*DAY)).v:"","yyyy-mm-dd",r.outDate?"n":"s"),
+      N(r.q3,"#,##0"),N(r.q6,"#,##0"),F(`IF(AD${n}>0,(AC${n}-AD${n})/AD${n},"")`,r.q6>0?(r.q3-r.q6)/r.q6:"","0%",r.q6>0?"n":"s"),
+      F(`IF(G${n}>0,MAX(0,E${n}-S${n}),E${n})`,r.excess,"#,##0"),F(`IF(W${n}="","",AF${n}*W${n})`,r.exVal==null?"":r.exVal,"$#,##0.00",r.exVal==null?"s":"n"),r.ls?D(r.ls):T("")])});
+    const last=rows.length+1,M="'Min-Max'!";
+    const wsMM=sheet(MM,[16,38,6,24,9,9,9,12,8,8,9,9,18,7,9,9,9,8,8,10,9,11,10,15,15,5,9,12,9,9,8,9,11,11]);wsMM["!autofilter"]={ref:`A1:AH${last}`};
+    // Summary
+    const cnt=(col,v)=>`COUNTIF(${M}${col}2:${col}${last},"${v}")`;const sum=(col)=>`SUM(${M}${col}2:${col}${last})`;
+    const by=st2=>R.filter(r=>r.status===st2).length,re=R.filter(r=>r.status==="REORDER"||r.status==="OUT OF STOCK");
+    const SUM=[["Product Min / Max report"],[`History ${W.start.toISOString().slice(0,10)} to ${endIncl.toISOString().slice(0,10)} · service level ${Math.round(st.sl*100)}% · review every ${st.review} days`],[],
+      ["Products in report",F(`COUNTA(${M}A2:A${last})`,rows.length,"#,##0")],["Products sold in window",F(`COUNTIF(${M}G2:G${last},">0")`,R.filter(r=>r.sold>0).length,"#,##0")],
+      ["Units sold",F(sum("G"),R.reduce((a,r)=>a+r.sold,0),"#,##0")],["Sales $",F(sum("H"),R.reduce((a,r)=>a+r.amt,0),"$#,##0")],[],
+      ["NEED TO ORDER NOW (products)",F(`${cnt("X","REORDER")}+${cnt("X","OUT OF STOCK")}`,re.length,"#,##0")],["  of which out of stock",F(cnt("X","OUT OF STOCK"),by("OUT OF STOCK"),"#,##0")],
+      ["Units to order",F(`SUMIFS(${M}U2:U${last},${M}X2:X${last},"REORDER")+SUMIFS(${M}U2:U${last},${M}X2:X${last},"OUT OF STOCK")`,re.reduce((a,r)=>a+r.order,0),"#,##0")],["Order value $",F(`SUMIFS(${M}V2:V${last},${M}X2:X${last},"REORDER")+SUMIFS(${M}V2:V${last},${M}X2:X${last},"OUT OF STOCK")`,re.reduce((a,r)=>a+(r.val||0),0),"$#,##0")],
+      ["Regular sellers to order",F(`COUNTIFS(${M}X2:X${last},"REORDER",${M}Y2:Y${last},"Regular")+COUNTIFS(${M}X2:X${last},"OUT OF STOCK",${M}Y2:Y${last},"Regular")`,re.filter(r=>r.pat==="Regular").length,"#,##0")],
+      ["Regular sellers — units / $",F(`SUMIFS(${M}U2:U${last},${M}Y2:Y${last},"Regular",${M}X2:X${last},"<>Out · on order")`,re.filter(r=>r.pat==="Regular").reduce((a,r)=>a+r.order,0),"#,##0"),F(`SUMIFS(${M}V2:V${last},${M}Y2:Y${last},"Regular",${M}X2:X${last},"<>Out · on order")`,re.filter(r=>r.pat==="Regular").reduce((a,r)=>a+(r.val||0),0),"$#,##0")],
+      ["Out of stock but on order",F(cnt("X","Out · on order"),by("Out · on order"),"#,##0")],[],
+      ["Above MAX (products)",F(cnt("X","Above max"),by("Above max"),"#,##0")],["No sales in window (products)",F(cnt("X","No sales"),by("No sales"),"#,##0")],
+      ["Excess stock over MAX $",F(sum("AG"),R.reduce((a,r)=>a+(r.exVal||0),0),"$#,##0")],["OK",F(cnt("X","OK"),by("OK"),"#,##0")],[],
+      ["Pattern — Regular",F(cnt("Y","Regular"),R.filter(r=>r.pat==="Regular").length,"#,##0")],["Pattern — Occasional",F(cnt("Y","Occasional"),R.filter(r=>r.pat==="Occasional").length,"#,##0")],
+      ["Pattern — Project / lumpy",F(cnt("Y","Project / lumpy"),R.filter(r=>r.pat==="Project / lumpy").length,"#,##0")],[],
+      ["ABC — A products",F(cnt("Z","A"),R.filter(r=>r.abc==="A").length,"#,##0")],["ABC — B products",F(cnt("Z","B"),R.filter(r=>r.abc==="B").length,"#,##0")],["ABC — C products",F(cnt("Z","C"),R.filter(r=>r.abc==="C").length,"#,##0")],[],
+      ["Tip: on Min-Max, filter Status = REORDER / OUT OF STOCK and Pattern = Regular for the buy list. 'Order List' and 'Order by Vendor' are ready to send."]];
+    // Order list + by vendor
+    const OL=re.slice().sort((a,b)=>(a.v||"~").localeCompare(b.v||"~")||(b.val||0)-(a.val||0));
+    const ORD=[["Vendor","Product Key","Description","Status","Pattern","ABC","On Hand","On Order","MIN","MAX","Case Qty","Order Qty","Unit Cost","Order $","Days of Cover","Lead Time (days)"],
+      ...OL.map(r=>[r.v||"(no vendor)",r.k,r.n,r.status,r.pat,r.abc||"",N(r.oh),N(r.oo),N(r.min),N(r.max),r.cq?N(r.cq):"",N(r.order,"#,##0"),r.c!=null?N(r.c,"$#,##0.00"):"",r.val!=null?N(r.val,"$#,##0.00"):"",r.cover!=null?N(Math.round(r.cover)):"",N(Math.round(r.ltU))])];
+    ORD.push([],["TOTAL","","","","","","","","","","",F(`SUM(L2:L${OL.length+1})`,OL.reduce((a,r)=>a+r.order,0),"#,##0"),"",F(`SUM(N2:N${OL.length+1})`,OL.reduce((a,r)=>a+(r.val||0),0),"$#,##0.00")]);
+    const vm=new Map();for(const r of OL){const k=r.v||"(no vendor)";const x=vm.get(k)||[k,0,0,0,0];x[1]++;x[2]+=r.order;x[3]+=r.val||0;if(r.pat==="Regular")x[4]++;vm.set(k,x)}
+    const VEN=[["Vendor","Products to order","Units","Order $","of which Regular sellers"],...[...vm.values()].sort((a,b)=>b[3]-a[3]).map(x=>[x[0],N(x[1]),N(x[2],"#,##0"),N(x[3],"$#,##0.00"),N(x[4])])];
+    // monthly / yearly / best / dead
+    const Ms=invMonths(),ml=Ms.map(m=>m.ym),sold=R.filter(r=>r.m&&Object.keys(r.m).length).sort((a,b)=>b.sold-a.sold);
+    const monthSheet=i=>[["Product Key","Description",...ml.map(mon),"Total","Avg / month","MIN month","MAX month","Months sold"],...sold.map((r,j)=>{const n=j+2,c0=2,c1=c0+ml.length-1,a=X.utils.encode_col(c0),b=X.utils.encode_col(c1);const vals=ml.map(ym=>r.m[ym]?r.m[ym][i]:0);
+      return [r.k,r.n,...vals.map(v=>N(Math.round(v*100)/100,i?"$#,##0":"#,##0")),F(`SUM(${a}${n}:${b}${n})`,vals.reduce((x,y)=>x+y,0),i?"$#,##0":"#,##0"),F(`AVERAGE(${a}${n}:${b}${n})`,vals.reduce((x,y)=>x+y,0)/vals.length,i?"$#,##0":"#,##0.0"),F(`MIN(${a}${n}:${b}${n})`,Math.min(...vals),i?"$#,##0":"#,##0"),F(`MAX(${a}${n}:${b}${n})`,Math.max(...vals),i?"$#,##0":"#,##0"),F(`COUNTIF(${a}${n}:${b}${n},">0")`,vals.filter(v=>v>0).length,"0")]})];
+    const TOT=[["Month","Units","Sales $","Products sold"],...Ms.map(m=>[mon(m.ym)+(m.partial?" (part)":""),N(m.qty,"#,##0"),N(Math.round(m.amt),"$#,##0"),N(m.prods)])];const tl=Ms.length+1;
+    TOT.push([],["Total",F(`SUM(B2:B${tl})`,Ms.reduce((a,m)=>a+m.qty,0),"#,##0"),F(`SUM(C2:C${tl})`,Ms.reduce((a,m)=>a+m.amt,0),"$#,##0")],["Average month",F(`AVERAGE(B2:B${tl})`,Ms.reduce((a,m)=>a+m.qty,0)/Ms.length,"#,##0"),F(`AVERAGE(C2:C${tl})`,Ms.reduce((a,m)=>a+m.amt,0)/Ms.length,"$#,##0")],["MIN month",F(`MIN(B2:B${tl})`,Math.min(...Ms.map(m=>m.qty)),"#,##0"),F(`MIN(C2:C${tl})`,Math.min(...Ms.map(m=>Math.round(m.amt))),"$#,##0")],["MAX month",F(`MAX(B2:B${tl})`,Math.max(...Ms.map(m=>m.qty)),"#,##0"),F(`MAX(C2:C${tl})`,Math.max(...Ms.map(m=>Math.round(m.amt))),"$#,##0")]);
+    const yrs=[...new Set(ml.map(m=>m.slice(0,4)))];const yv=(r,y,i)=>Object.keys(r.m).filter(ym=>ym.startsWith(y)).reduce((a,ym)=>a+r.m[ym][i],0);
+    const YR=[["Product Key","Description",...yrs.map(y=>"Units "+y),...yrs.map(y=>"Sales $ "+y)],...sold.map(r=>[r.k,r.n,...yrs.map(y=>N(yv(r,y,0),"#,##0")),...yrs.map(y=>N(Math.round(yv(r,y,1)*100)/100,"$#,##0"))])];
+    const best=R.filter(r=>r.sold>0).sort((a,b)=>b.amt-a.amt);const BS=[["Rank","Product Key","Description","Units","Sales $","Orders","ABC","On Hand","Status","Trend %"],...best.map((r,i)=>[N(i+1),r.k,r.n,N(r.sold,"#,##0"),N(Math.round(r.amt*100)/100,"$#,##0"),N(r.ord),r.abc||"",N(r.oh),r.status,r.trend!=null?N(r.trend,"0%"):""])];
+    const dead=R.filter(r=>r.status==="No sales").sort((a,b)=>(b.ohVal||0)-(a.ohVal||0));const DS=[["Product Key","Description","Vendor","On Hand","Unit Cost","Stock $","Last Sale"],...dead.map(r=>[r.k,r.n,r.v,N(r.oh),r.c!=null?N(r.c,"$#,##0.00"):"",r.ohVal!=null?N(r.ohVal,"$#,##0.00"):"",r.ls?D(r.ls):"never"])];
+    const SRC=[["POS table","What it is","Used for"],["TransactionItems","Sales lines (CNTR, ITEM, QTY, TXTY, PRIC)","What was sold"],["Transactions","Contracts (CNTR, DATE, STAT)","When it was sold"],["ItemFile","Item master (KEY, Name, NUM, QTY, TYPE, CaseQty)","Products, stock, cost, case qty"],["PurchaseOrder","PO headers","Lead time, open POs"],["PurchaseOrderDetail","PO lines","Lead time, qty on order"],["VendorFile","Vendors","Vendor names"]];
+    X.utils.book_append_sheet(wb,sheet(SUM,[44,18,16]),"Summary");X.utils.book_append_sheet(wb,sheet(SET,[34,14,70]),"Settings");X.utils.book_append_sheet(wb,wsMM,"Min-Max");
+    const wsO=sheet(ORD,[26,16,38,14,15,5,8,8,7,7,7,9,10,12,9,9]);wsO["!autofilter"]={ref:`A1:P${OL.length+1}`};X.utils.book_append_sheet(wb,wsO,"Order List");
+    X.utils.book_append_sheet(wb,sheet(VEN,[34,16,10,14,18]),"Order by Vendor");
+    X.utils.book_append_sheet(wb,sheet(monthSheet(0),[16,36,...ml.map(()=>9),9,10,9,9,8]),"Monthly Qty");X.utils.book_append_sheet(wb,sheet(monthSheet(1),[16,36,...ml.map(()=>10),11,11,10,10,8]),"Monthly Sales $");
+    X.utils.book_append_sheet(wb,sheet(TOT,[18,12,14,13]),"Monthly Totals");X.utils.book_append_sheet(wb,sheet(YR,[16,36,...yrs.map(()=>11),...yrs.map(()=>13)]),"Yearly");
+    X.utils.book_append_sheet(wb,sheet(BS,[6,16,38,9,12,8,5,8,14,8]),"Best Sellers");X.utils.book_append_sheet(wb,sheet(DS,[16,38,26,9,10,11,11]),"Dead Stock");X.utils.book_append_sheet(wb,sheet(SRC,[22,48,30]),"Data Sources");
+    wb.Workbook={CalcPr:{fullCalcOnLoad:true}};
+    const out=X.write(wb,{bookType:"xlsx",type:"array",compression:true});
+    await saveFile(`Product_Min_Max-${(meta.exported||stamp())}.xlsx`,new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+    footprint("products","report","Excel report downloaded",`Product_Min_Max-${meta.exported||stamp()}.xlsx`,rows.length,"products")}
+  catch(e){toast("Report failed: "+(e.message||e),7000)}}
 
 /* ================= weekly uploads: slots, Monday reminder, footprint ================= */
 const DH_LABEL={inrico:"Inrico",jasper:"Telus Jasper",simplex:"Simplex",hologram:"Hologram"};
