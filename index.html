@@ -571,6 +571,7 @@ table.ptab input:focus{border-color:var(--acc);outline:none}
 }
 @media (max-width:520px){.kpis,.g4{grid-template-columns:1fr 1fr;gap:10px}.kpi .val{font-size:24px}.ttl .sub{display:none}.brow{grid-template-columns:90px 1fr 50px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+.utilbar{display:inline-flex;align-items:center;gap:6px}.utilbar i{display:block;width:54px;height:6px;border-radius:4px;background:var(--line);overflow:hidden}.utilbar u{display:block;height:100%;background:var(--acc);text-decoration:none}.utilbar b{font:600 12px var(--f-num);min-width:34px;text-align:right}
 </style>
 <div class="app">
   <nav class="rail" id="rail" aria-label="Sections"></nav>
@@ -3044,7 +3045,7 @@ async function libPut(file,buf,ptype){const raw=new Uint8Array(buf);const z=awai
   for(let i=0;i<n;i++)await S.db.doc(`invchunks/${id}_${i}`).set({d:b64(data.subarray(i*CHUNK,(i+1)*CHUNK))});
   const info={name:file.name,size:raw.length,stored:data.length,gz:isGz,chunks:n,mime:file.type||"",por:ptype||"",by:(S.me&&S.me.name)||"",byId:(S.me&&S.me.id)||"",at:new Date().toISOString(),modified:file.lastModified?new Date(file.lastModified).toISOString():null};
   await S.db.doc("invfiles/"+id).set(info);if(ptype){await S.db.doc("inv/uploads").set({[ptype]:{at:info.at,by:info.by,file:info.name,size:info.size}},{merge:true}).catch(()=>{})}
-  footprint("products",ptype||"other",ptype?POR[ptype].l:"Other file",file.name,null,kb(raw.length));return Object.assign({id},info)}
+  footprint("products",ptype||"other",ptype?KL(ptype):"Other file",file.name,null,kb(raw.length));return Object.assign({id},info)}
 async function libGet(f){const parts=[];for(let i=0;i<f.chunks;i++){const d=await S.db.doc(`invchunks/${f.id}_${i}`).get();if(!d.exists)throw new Error("File part missing");parts.push(unb64(d.data().d))}
   const all=new Uint8Array(parts.reduce((a,p)=>a+p.length,0));let o=0;for(const p of parts){all.set(p,o);o+=p.length}return f.gz?await gz(all,true):all}
 async function libDel(f){for(let i=0;i<f.chunks;i++)await S.db.doc(`invchunks/${f.id}_${i}`).delete().catch(()=>{});await S.db.doc("invfiles/"+f.id).delete()}
@@ -3072,12 +3073,12 @@ VIEWS.products=v=>{
   if(!invOK()){v.append(el("div",{class:"empty"},el("h3",{text:"Admins and managers only"}),el("p",{text:"Ask an admin for the manager role to see products and inventory."})));return}
   v.append(secH("Products & inventory","Point of Rental sales, best sellers, Min / Max and what to order. Admins and managers only.",el("button",{class:"btn sm pri",title:"Download the full Min / Max workbook (like Product_Min_Max.xlsx)",onclick:()=>invReport()},icon("dl"),"Excel report"),el("button",{class:"btn sm",onclick:()=>{S.invTab="files";render()}},icon("upload"),"Upload / files")));
   const body=el("div");v.append(body);
-  if(!S.inv){body.append(loaderNode("Loading products…"));invLoad().then(()=>render(true)).catch(e=>body.replaceChildren(el("p",{class:"diff",text:"Could not load products: "+(e.message||e)+". If this says permission denied, publish the new firestore.rules."})));return}
-  const tabs=[["overview","Overview"],["summary","Summary"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["files","Files"],["settings","Settings"]];
+  if(!S.inv||!S.avail){body.append(loaderNode("Loading products…"));Promise.all([invLoad(),availLoad().catch(()=>{S.avail={}})]).then(()=>render(true)).catch(e=>body.replaceChildren(el("p",{class:"diff",text:"Could not load products: "+(e.message||e)+". If this says permission denied, publish the new firestore.rules."})));return}
+  const tabs=[["overview","Overview"],["summary","Summary"],["monthly","Month by month"],["yearly","Year by year"],["best","Best sellers"],["order","What to order"],["minmax","Min / Max"],["rental","Rental fleet"],["stock","All inventory"],["files","Files"],["settings","Settings"]];
   body.append(el("div",{class:"seg invtabs"},tabs.map(([k,l])=>el("button",{class:S.invTab===k?"on":"",onclick:()=>{S.invTab=k;render(true)}},l))));
   const meta=S.inv.meta;
-  if(!meta&&S.invTab!=="files"&&S.invTab!=="settings"){body.append(el("div",{class:"card mt"},el("h3",{text:"No product data yet"}),el("p",{text:"Open Files and upload the Point of Rental exports: Sales lines, Contracts and Item master (required), plus PO headers, PO lines and Vendors for real lead times."}),el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload files")));return}
-  if(meta)body.append(el("p",{class:"hint mt",text:`Data from POS exports up to ${meta.exported} · ${fmt(meta.count)} products · updated ${new Date(meta.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}${meta.by?" by "+meta.by:""}`}));
+  if(!meta&&!["files","settings","rental","stock"].includes(S.invTab)){body.append(el("div",{class:"card mt"},el("h3",{text:"No product data yet"}),el("p",{text:"Open Files and upload the Point of Rental exports: Sales lines, Contracts and Item master (required), plus PO headers, PO lines and Vendors for real lead times."}),el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload files")));return}
+  if(meta&&S.invTab!=="rental"&&S.invTab!=="stock")body.append(el("p",{class:"hint mt",text:`Data from POS exports up to ${meta.exported} · ${fmt(meta.count)} products · updated ${new Date(meta.at).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})}${meta.by?" by "+meta.by:""}`}));
   const T=INV_TABS[S.invTab]||INV_TABS.overview;T(body)};
 const INV_TABS={};
 const calcRows=()=>{const k=JSON.stringify(invSet())+"|"+((S.inv&&S.inv.meta&&S.inv.meta.at)||"")+"|"+((S.inv&&S.inv.prods.length)||0);if(!S._invCalc||S._invCalc.k!==k||S._invCalc.src!==S.inv)S._invCalc={k,src:S.inv,rows:invCalc()};return S._invCalc.rows};
@@ -3250,10 +3251,11 @@ INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…
     const por={};
     for(const f of files){const p=line(`${f.name} — reading…`);try{if(f.size>25*1048576)throw new Error("over 25 MB");const buf=await f.arrayBuffer();let pt="";
         if(/\.(csv|txt|xlsx|xls)$/i.test(f.name)){const text=await fileText(f.name,buf);pt=porType(firstLine(text));
+          if(!pt&&!expect&&/^\uFEFF?Key,Owned,In,/.test(firstLine(text))){const res=parseAvail(text);const m=/(\d{4})\.(\d{2})\.(\d{2})/.exec(f.name);p.textContent=`${f.name} — ${AVAIL[res.kind].l} export, saving…`;await libPut(f,buf,res.kind);await availSave(res.kind,res,f.name,m?`${m[1]}-${m[2]}-${m[3]}`:null);p.textContent=`✓ ${f.name} — ${AVAIL[res.kind].l} (${fmt(res.rows.length)} items)`;continue}
           if(expect&&pt!==expect)throw new Error(pt?`this is the ${PORL(pt)} export, not ${PORL(expect)}. Use the ${PORL(pt)} slot.`:`this is not the ${PORL(expect)} export (columns don't match). Expected: ${POR[expect].cols}.`);
           if(pt)por[pt]={text,name:f.name,modified:f.lastModified}}
         else if(expect)throw new Error(`${PORL(expect)} must be a .csv or Excel export from Point of Rental.`);
-        p.textContent=`${f.name} — saving to the library…`;await libPut(f,buf,pt);p.textContent=`✓ ${f.name}${pt?" — "+POR[pt].l:""} (${kb(f.size)})`}
+        p.textContent=`${f.name} — saving to the library…`;await libPut(f,buf,pt);p.textContent=`✓ ${f.name}${pt?" — "+KL(pt):""} (${kb(f.size)})`}
       catch(e){p.textContent=`✗ ${f.name} — ${e.message||e}`;p.style.color="var(--bad)"}}
     if(Object.keys(por).length){const need=Object.keys(POR).filter(k=>!por[k]);const p=line("Updating products…");
       try{const L=await libList();for(const k of need){const f=L.find(x=>x.por===k);if(f){p.textContent=`Using the latest ${POR[k].l} from the library (${f.name})…`;por[k]={text:await fileText(f.name,(await libGet(f)).buffer),name:f.name,fromLib:true}}}
@@ -3279,7 +3281,7 @@ INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…
     c.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over")});c.addEventListener("dragleave",()=>c.classList.remove("over"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");handle(e.dataTransfer.files,k)});return c};
   const req=Object.entries(POR).filter(([,x])=>x.need),opt=Object.entries(POR).filter(([,x])=>!x.need);
   b.append(el("h3",{class:"mt",text:"Point of Rental exports — required"}),el("div",{class:"grid g3 slots"},req.map(slot)),
-    el("h3",{class:"mt",text:"Point of Rental exports — optional (real lead times and vendor names)"}),el("div",{class:"grid g3 slots"},opt.map(slot)),
+    el("h3",{class:"mt",text:"Point of Rental exports — optional (real lead times and vendor names)"}),el("div",{class:"grid g3 slots"},opt.map(slot)),availSlots(),
     el("p",{class:"hint mt",text:"Export each table from Point of Rental (Database Management → Database Table Viewer) as CSV or Excel. Each slot checks the file's column headings, so the file name doesn't matter. Upload only what changed — the dashboard re-uses the latest copy of the others. Sales lines, Contracts and Item master are due every Monday."}),out);
   // other files
   const fileIn=el("input",{type:"file",multiple:true,hidden:true,onchange:e=>handle(e.target.files)});
@@ -3287,7 +3289,7 @@ INV_TABS.files=b=>{const host=el("div",{class:"mt"},loaderNode("Loading files…
   dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});dz.addEventListener("dragleave",()=>dz.classList.remove("over"));dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");handle(e.dataTransfer.files)});
   const loadList=async()=>{try{const L=await libList();const latest={};L.forEach(f=>{if(f.por&&!latest[f.por])latest[f.por]=f.id});
       host.replaceChildren(el("div",{class:"card"},el("h3",{text:`File library (${fmt(L.length)})`}),L.length?table([
-        {l:"File",v:f=>f.name},{l:"Kind",v:f=>f.por?POR[f.por].l:"Other",f:f=>f.por?pill(PORL(f.por)+(latest[f.por]===f.id?" · in use":""),latest[f.por]===f.id?"p-ok":"p-idle"):"Other"},
+        {l:"File",v:f=>f.name},{l:"Kind",v:f=>f.por?KL(f.por):"Other",f:f=>f.por?pill((POR[f.por]?PORL(f.por):KL(f.por))+(latest[f.por]===f.id?" · in use":""),latest[f.por]===f.id?"p-ok":"p-idle"):"Other"},
         {l:"Size",v:f=>f.size,f:f=>kb(f.size),num:1},{l:"Uploaded",v:f=>f.at,f:f=>whenTxt(f.at)},{l:"By",v:f=>f.by||""},
         {l:"",v:f=>0,f:f=>el("span",{class:"rowbtns"},el("button",{class:"btn sm",onclick:async e=>{const bt=e.currentTarget;bt.disabled=true;try{const u=await libGet(f);await saveFile(f.name,new Blob([u],{type:f.mime||"application/octet-stream"}));footprint("products","download","Downloaded",f.name,null,kb(f.size))}catch(x){toast("Download failed: "+(x.message||x))}bt.disabled=false}},icon("dl"),"Download"),
           el("button",{class:"btn sm",title:"Delete","aria-label":"Delete "+f.name,onclick:async()=>{if(!confirm(`Delete ${f.name} from the library?`))return;try{await libDel(f);footprint("products","delete","Deleted",f.name,null,"");toast("Deleted");loadList()}catch(x){toast("Delete failed: "+(x.message||x))}}},icon("trash")))}],L,{sort:3,dir:-1})
@@ -3446,6 +3448,190 @@ async function invReport(){
 const DH_LABEL={inrico:"Inrico",jasper:"Telus Jasper",simplex:"Simplex",hologram:"Hologram"};
 const DH_DESC={inrico:"Companies, devices, licences — Inrico device export (.xlsx / .csv)",jasper:"SIM status, customer, plan — Jasper SIM export",simplex:"SIM status, company — Simplex SIM list",hologram:"SIM status, name — Hologram SIM list"};
 const WEEKLY_POR=["lines","contracts","items"];
+
+/* ================= Point of Rental "Item Availability" exports: Rental fleet + All inventory ================= */
+const AVAIL={rental:{l:"Rental availability",tbl:"Item Availability — rentals",doc:"inv/rental",what:"Rental items: owned, in the store, daily / weekly / monthly rates"},
+  stock:{l:"All inventory",tbl:"Item Availability — all inventory",doc:"inv/stock",what:"Sales items: quantity on hand and price"}};
+const KL=k=>POR[k]?POR[k].l:AVAIL[k]?AVAIL[k].l:"Other";
+const nnum=s=>{s=String(s==null?"":s).replace(/[,$\s]/g,"");if(s==="")return null;const v=+s;return isNaN(v)?null:v};
+function parseAvail(text){const r=parseCSV(text.replace(/^﻿/,""));if(r.length<2)throw new Error("No rows found");const h=r[0].map(x=>x.trim());
+  const ix=k=>h.indexOf(k);if(ix("Key")<0||ix("Owned")<0||ix("In")<0||ix("Name")<0)throw new Error("This is not a Point of Rental Item Availability export (needs Key, Owned, In, Name columns).");
+  const rows=r.slice(1).filter(x=>x.length>ix("Name")&&String(x[ix("Key")]||"").trim());
+  // category column: the unnamed column after the rates that is mostly text like "New-…"
+  let cat=-1,best=0;for(let c=16;c<h.length;c++){let n=0;for(const x of rows.slice(0,400)){const v=String(x[c]||"").trim();if(v&&!/^(true|false|-?[\d.,]+)$/i.test(v))n++}if(n>best){best=n;cat=c}}
+  const I={k:ix("Key"),o:ix("Owned"),i:ix("In"),n:ix("Name"),dep:ix("Deposit"),d:ix("Daily"),w:ix("Weekly"),m:ix("Monthly"),num:5,part:6,store:7};
+  const out=rows.map(x=>[String(x[I.k]).trim(),nnum(x[I.o])||0,nnum(x[I.i])||0,String(x[I.num]||"").trim(),String(x[I.part]||"").trim(),String(x[I.n]||"").trim(),nnum(x[I.dep]),nnum(x[I.d]),nnum(x[I.w]),nnum(x[I.m]),cat>=0?String(x[cat]||"").trim():"",String(x[I.store]||"").trim()]);
+  const rated=out.filter(x=>x[7]||x[8]||x[9]).length;return {rows:out,kind:rated>out.length*0.2?"rental":"stock"}}
+const VIRT=(q,cat)=>/labour|subscription|charges|discount/i.test(cat||"")||(q>=9900&&q<=9999)||q>=90000;   // services, subscriptions, fees and 9,999 / 99,999 placeholder quantities
+const catName=c=>String(c||"").replace(/^New-/,"").trim()||"(none)";
+async function availLoad(force){if(!S.db){S.avail=S.avail||{};return}if(S.avail&&!force)return;const [a,b]=await Promise.all([S.db.doc(AVAIL.rental.doc).get(),S.db.doc(AVAIL.stock.doc).get()]);S.avail={rental:a.exists?a.data():null,stock:b.exists?b.data():null}}
+async function availSave(kind,res,fname,exported){const doc={at:new Date().toISOString(),by:(S.me&&S.me.name)||"",file:fname,exported:exported||null,rows:res.rows};
+  await S.db.doc(AVAIL[kind].doc).set(doc);S.avail=S.avail||{};S.avail[kind]=doc;
+  footprint("products",kind,AVAIL[kind].l+" updated",fname,res.rows.length,"rows")}
+/* ----- rental maths ----- */
+function rentalCalc(){const d=S.avail&&S.avail.rental;if(!d)return null;
+  const rows=d.rows.map(x=>{const [k,own,inn,num,part,n,dep,dy,wk,mo,cat]=x;const virt=VIRT(own,cat);const out=own-inn;
+    const rate=mo!=null?mo:wk!=null?wk*4.33:dy!=null?dy*30:null,rateSrc=mo!=null?"monthly":wk!=null?"weekly × 4.33":dy!=null?"daily × 30":"no rate";
+    const lab=/MAINT|SERVICE/i.test(k)&&/labour/i.test(cat);
+    const type=lab?"Maintenance / service":virt?(/subscription|data|airtime/i.test(cat+" "+n)?"Subscription / service":"Unlimited item"):"Rental unit";
+    const util=!virt&&own>0?out/own:null;
+    const st=type!=="Rental unit"?(out>0?"In use":"Not used"):own<=0?"None owned":out<0?"Check count":inn<=0?"Fully out":util>=.8?"High use":util>=.3?"Normal":util>0?"Low use":"Idle";
+    return {k,n,cat:catName(cat),num,part,own,inn,out,util,dy,wk,mo,rate,rateSrc,type,virt,st,rev:rate!=null&&out>0?out*rate:0,pot:rate!=null&&!virt?own*rate:0,idle:rate!=null&&!virt&&inn>0?inn*rate:0}});
+  return {rows,at:d.at,by:d.by,file:d.file}}
+const RSTAT={"Fully out":"p-bad","High use":"p-ok","Normal":"p-acc","Low use":"p-warn","Idle":"p-idle","Check count":"p-bad","In use":"p-ok","Not used":"p-idle","None owned":"p-idle"};
+function listPop(title,sub,rows,cols,sortIdx,exp){const host=el("div");let q="";const cnt=el("b",{class:"invcount"});
+  const list=()=>rows.filter(r=>!q||Object.values(r).filter(v=>typeof v==="string").join(" ").toLowerCase().includes(q));
+  const fill=()=>{const L=list();cnt.textContent=q?`${fmt(L.length)} of ${fmt(rows.length)}`:`${fmt(rows.length)} items`;host.replaceChildren(table(cols,L,{sort:sortIdx,dir:-1,limit:5000}))};
+  const d=el("div",{class:"fmt-scrim",onclick:e=>{if(e.target===d)close()}});const close=()=>{d.remove();document.removeEventListener("keydown",kd)};const kd=e=>{if(e.key==="Escape")close()};document.addEventListener("keydown",kd);
+  d.append(el("div",{class:"card invpop invdrill",role:"dialog","aria-label":title},el("div",{class:"filters",style:"margin:0 0 4px"},el("h3",{style:"flex:1;margin:0",text:title}),el("button",{class:"ibtn","aria-label":"Close",onclick:close},icon("x"))),
+    el("p",{class:"hint",text:sub}),el("div",{class:"filters"},cnt,el("input",{type:"search",placeholder:"Search…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),exp?expBtn(title.replace(/\s+/g,"-"),exp[0],()=>list().map(exp[1])):null),host));
+  document.body.append(d);fill()}
+const pctTxt=v=>v==null?"—":Math.round(v*100)+"%";
+const R_COLS=[{l:"Item",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Category",v:r=>r.cat},{l:"Owned",v:r=>r.own,num:1},{l:"In store",v:r=>r.inn,num:1},{l:"On rent / in use",v:r=>r.out,num:1},
+  {l:"Utilization",v:r=>r.util==null?-1:r.util,f:r=>r.util==null?"—":el("span",{class:"utilbar"},el("i",{},el("u",{style:`width:${Math.max(0,Math.min(100,r.util*100))}%`})),el("b",{text:pctTxt(r.util)})),num:1},
+  {l:"Daily",v:r=>r.dy||0,f:r=>r.dy!=null?money(r.dy):"—",num:1},{l:"Weekly",v:r=>r.wk||0,f:r=>r.wk!=null?money(r.wk):"—",num:1},{l:"Monthly",v:r=>r.mo||0,f:r=>r.mo!=null?money(r.mo):"—",num:1},
+  {l:"$ / month on rent",v:r=>r.rev,f:r=>r.rev?money(r.rev):"—",num:1},{l:"Idle $ / month",v:r=>r.idle,f:r=>r.idle?money(r.idle):"—",num:1},{l:"Status",v:r=>r.st,f:r=>pill(r.st,RSTAT[r.st])}];
+const R_HEAD=["Item","Description","Category","Type","Owned","In store","On rent / in use","Utilization %","Daily","Weekly","Monthly","Rate used","$ / month on rent","$ / month if all rented","Idle $ / month","Status"];
+const rRow=r=>[r.k,r.n,r.cat,r.type,r.virt?"":r.own,r.inn,r.out,r.util==null?"":Math.round(r.util*1000)/10,r.dy??"",r.wk??"",r.mo??"",r.rateSrc,Math.round(r.rev*100)/100,Math.round(r.pot*100)/100,Math.round(r.idle*100)/100,r.st];
+INV_TABS.rental=b=>{const C=rentalCalc();if(!C){b.append(availEmpty("rental"));return}
+  const all=C.rows,units=all.filter(r=>r.type==="Rental unit"&&r.own>0),subs=all.filter(r=>r.type==="Subscription / service"),mnt=all.filter(r=>r.type==="Maintenance / service");
+  const sum=(L,k)=>L.reduce((a,r)=>a+(r[k]||0),0),own=sum(units,"own"),out=sum(units,"out"),inn=sum(units,"inn"),util=own?out/own:0;
+  const by=s=>units.filter(r=>r.st===s),subsOn=subs.filter(r=>r.out>0);
+  const pop=(t,s,L,si)=>()=>listPop(t,s,L,R_COLS,si||5,[R_HEAD,rRow]);
+  b.append(el("p",{class:"hint mt",text:`From ${C.file} · uploaded ${whenTxt(C.at)}${C.by?" by "+C.by:""}. “On rent” = Owned − In store. Revenue uses the monthly rate (or weekly × 4.33, or daily × 30 when there is no monthly rate).`}),
+    el("div",{class:"kpis mt"},
+      kpi({label:"Rental units owned",value:own,note:`${fmt(units.length)} rental items`,ic:"products",onClick:pop("Rental units",`${fmt(own)} units in ${fmt(units.length)} items`,units,3)}),
+      kpi({label:"On rent now",value:out,note:`${fmt(inn)} available in store`,ic:"online",cls:"solid",onClick:pop("On rent now","Items with units out",units.filter(r=>r.out>0),5)}),
+      kpi({label:"Fleet utilization",value:Math.round(util*100),fmtFn:x=>x+"%",note:"units on rent ÷ units owned",ic:"compare",onClick:pop("Utilization by item","Sorted by utilization",units,6)}),
+      kpi({label:"Rental $ / month",value:Math.round(sum(units,"rev")),fmtFn:money,note:`${money(sum(units,"pot"))} if everything was rented`,ic:"money",cls:"solid",onClick:pop("Monthly rental revenue on rent","Units on rent × monthly rate",units.filter(r=>r.rev>0),10)}),
+      kpi({label:"Idle capacity",value:Math.round(sum(units,"idle")),fmtFn:money,note:"$ / month sitting in the store",ic:"power",cls:"orange",onClick:pop("Idle capacity","Units in store × monthly rate",units.filter(r=>r.idle>0),11)}),
+      kpi({label:"Fully out",value:by("Fully out").length,note:"nothing left to rent — consider buying more",ic:"alerts",cls:by("Fully out").length?"alarm":"",onClick:pop("Fully out","All units are on rent",by("Fully out"),3)}),
+      kpi({label:"Idle items",value:by("Idle").length,note:"nothing rented out",ic:"x",onClick:pop("Idle rental items","0% utilization",by("Idle"),11)}),
+      kpi({label:"Active subscriptions",value:sum(subsOn,"out"),note:`${money(sum(subsOn,"rev"))} / month recurring`,ic:"sims",onClick:()=>listPop("Active subscriptions & services","In use = 99,999 − In",subsOn,R_COLS,5,[R_HEAD,rRow])}),
+      mnt.length?kpi({label:"Maintenance / service",value:sum(mnt,"out"),note:mnt.map(r=>`${r.n.toLowerCase()} ${fmt(r.out)}`).join(" · "),ic:"check",onClick:()=>listPop("Maintenance / service required","Units flagged in POR",mnt,R_COLS,5)}):null));
+  // status strip
+  const sts=["Fully out","High use","Normal","Low use","Idle","Check count"];
+  b.append(el("div",{class:"card mt"},el("h3",{text:"Rental units by status — click to see the items"}),el("div",{class:"bars"},sts.map(s=>{const L=by(s);return el("div",{class:"brow",onclick:pop(s,`${fmt(L.length)} items`,L,6)},el("span",{class:"l",text:s}),el("span",{class:"t"},el("i",{style:`width:${units.length?L.length/units.length*100:0}%;background:var(${s==="Fully out"||s==="Check count"?"--bad":s==="High use"?"--ok":s==="Idle"?"--idle":s==="Low use"?"--warn":"--acc"})`})),el("span",{class:"v",text:fmt(L.length)}))}))));
+  // by category
+  const cm=new Map();for(const r of units){const x=cm.get(r.cat)||{cat:r.cat,items:0,own:0,out:0,rev:0,idle:0,L:[]};x.items++;x.own+=r.own;x.out+=r.out;x.rev+=r.rev;x.idle+=r.idle;x.L.push(r);cm.set(r.cat,x)}
+  b.append(el("div",{class:"card mt"},el("h3",{text:"By category"}),table([{l:"Category",v:x=>x.cat},{l:"Items",v:x=>x.items,num:1},{l:"Owned",v:x=>x.own,num:1},{l:"On rent",v:x=>x.out,num:1},{l:"Utilization",v:x=>x.own?x.out/x.own:0,f:x=>pctTxt(x.own?x.out/x.own:0),num:1},{l:"$ / month on rent",v:x=>x.rev,f:x=>money(x.rev),num:1},{l:"Idle $ / month",v:x=>x.idle,f:x=>money(x.idle),num:1}],[...cm.values()],{sort:5,dir:-1,onRow:x=>listPop(x.cat,`${fmt(x.items)} items`,x.L,R_COLS,6,[R_HEAD,rRow])})));
+  // full list
+  let st="units",q="";const host=el("div");
+  const list=()=>(st==="units"?units:st==="subs"?subs:st==="all"?all:units.filter(r=>r.st===st)).filter(r=>!q||(r.k+" "+r.n+" "+r.cat).toLowerCase().includes(q));
+  const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} items · ${fmt(sum(L,"out"))} on rent / in use · ${money(sum(L,"rev"))} / month`})),table(R_COLS,L,{sort:6,dir:-1,limit:1000}))};
+  b.append(el("div",{class:"card mt"},el("h3",{text:"All rental items"}),el("div",{class:"filters"},el("select",{onchange:e=>{st=e.target.value;fill()}},[["units","Rental units"],["subs","Subscriptions & services"],["all","Everything in the file"],...sts.map(s=>[s,s])].map(([k,l])=>el("option",{value:k},l))),
+    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Rental-fleet",R_HEAD,()=>list().map(rRow)),el("button",{class:"btn sm pri",onclick:()=>rentalReport()},icon("dl"),"Rental Excel report")),host));fill()};
+/* ----- all inventory maths ----- */
+function stockCalc(){const d=S.avail&&S.avail.stock;if(!d)return null;const mm=new Map();try{for(const r of calcRows())mm.set(r.k,r)}catch(_){}
+  const rows=d.rows.map(x=>{const [k,own,inn,num,part,n,price,,,,cat]=x;const virt=VIRT(own,cat),pk=k.replace(/#\d+$/,"").toUpperCase(),m=mm.get(pk);
+    const qty=virt?null:own;const st=virt?"Non-stock":qty<0?"Negative — check":qty===0?"Zero stock":"In stock";
+    return {k,n,cat:catName(cat),num,part,qty,own,inn,price,virt,st,retail:qty>0&&price!=null?qty*price:0,cost:m&&m.c!=null?m.c:null,costVal:m&&m.c!=null&&qty>0?qty*m.c:null,min:m?m.min:null,max:m?m.max:null,mstat:m?m.status:"",sold:m?m.sold:null,cover:m?m.cover:null}});
+  return {rows,at:d.at,by:d.by,file:d.file}}
+const S_STAT={"In stock":"p-ok","Zero stock":"p-idle","Negative — check":"p-bad","Non-stock":"p-acc"};
+const S_COLS=[{l:"Item",v:r=>r.k},{l:"Description",v:r=>r.n},{l:"Category",v:r=>r.cat},{l:"Qty on hand",v:r=>r.qty==null?-1e9:r.qty,f:r=>r.qty==null?"—":fmt(r.qty),num:1},{l:"Price",v:r=>r.price||0,f:r=>r.price!=null?money(r.price):"—",num:1},
+  {l:"Retail value",v:r=>r.retail,f:r=>r.retail?money(r.retail):"—",num:1},{l:"Cost value",v:r=>r.costVal||0,f:r=>r.costVal!=null?money(r.costVal):"—",num:1},{l:"MIN",v:r=>r.min??-1,f:r=>r.min??"—",num:1},{l:"MAX",v:r=>r.max??-1,f:r=>r.max??"—",num:1},
+  {l:"Min/Max status",v:r=>r.mstat||"",f:r=>r.mstat?pill(r.mstat,PSTAT[r.mstat]):"—"},{l:"Stock",v:r=>r.st,f:r=>pill(r.st,S_STAT[r.st])}];
+const S_HEAD=["Item","Description","Category","Qty on hand","Price","Retail value","Unit cost","Cost value","MIN","MAX","Min/Max status","Sold in window","Days of cover","Stock status"];
+const sRow=r=>[r.k,r.n,r.cat,r.qty??"",r.price??"",Math.round(r.retail*100)/100,r.cost??"",r.costVal!=null?Math.round(r.costVal*100)/100:"",r.min??"",r.max??"",r.mstat,r.sold??"",r.cover!=null?Math.round(r.cover):"",r.st];
+INV_TABS.stock=b=>{const C=stockCalc();if(!C){b.append(availEmpty("stock"));return}
+  const all=C.rows,stk=all.filter(r=>!r.virt),inS=stk.filter(r=>r.qty>0),zero=stk.filter(r=>r.qty===0),neg=stk.filter(r=>r.qty<0),ns=all.filter(r=>r.virt);
+  const sum=(L,k)=>L.reduce((a,r)=>a+(r[k]||0),0);const pop=(t,s,L,si)=>()=>listPop(t,s,L,S_COLS,si==null?5:si,[S_HEAD,sRow]);
+  const over=inS.filter(r=>r.mstat==="Above max"),need=stk.filter(r=>r.mstat==="REORDER"||r.mstat==="OUT OF STOCK");
+  b.append(el("p",{class:"hint mt",text:`From ${C.file} · uploaded ${whenTxt(C.at)}${C.by?" by "+C.by:""}. Retail value = quantity × price from the file. Cost, MIN and MAX come from the Min / Max data when the item matches.`}),
+    el("div",{class:"kpis mt"},
+      kpi({label:"Items listed",value:stk.length,note:`${fmt(ns.length)} non-stock items (services, fees) left out`,ic:"products",onClick:pop("All stock items",`${fmt(stk.length)} items`,stk)}),
+      kpi({label:"Items in stock",value:inS.length,note:`${fmt(sum(inS,"qty"))} units on hand`,ic:"check",cls:"solid",onClick:pop("Items in stock","Quantity above zero",inS)}),
+      kpi({label:"Retail value",value:Math.round(sum(inS,"retail")),fmtFn:money,note:`cost value ${money(sum(inS,"costVal"))} (items with cost)`,ic:"money",cls:"solid",onClick:pop("Stock by retail value","Quantity × price",inS)}),
+      kpi({label:"Zero stock",value:zero.length,note:"listed but none on hand",ic:"x",onClick:pop("Zero stock","Quantity = 0",zero,4)}),
+      kpi({label:"Negative quantity",value:neg.length,note:"count errors to fix in POR",ic:"alerts",cls:neg.length?"alarm":"",onClick:pop("Negative quantity — check in POR","Quantity below zero",neg,3)}),
+      kpi({label:"Above MAX",value:over.length,note:"from Min / Max",ic:"power",cls:"orange",onClick:pop("In stock and above MAX","Compared with Min / Max",over)}),
+      kpi({label:"Need to order",value:need.length,note:"at or below MIN",ic:"alerts",onClick:pop("Need to order","Min / Max status REORDER or OUT OF STOCK",need,3)})));
+  const cm=new Map();for(const r of stk){const x=cm.get(r.cat)||{cat:r.cat,items:0,inS:0,units:0,retail:0,cost:0,L:[]};x.items++;if(r.qty>0){x.inS++;x.units+=r.qty;x.retail+=r.retail;x.cost+=r.costVal||0}x.L.push(r);cm.set(r.cat,x)}
+  const top=[...inS].sort((a,c)=>c.retail-a.retail).slice(0,12);
+  b.append(el("div",{class:"grid g2 mt"},el("div",{class:"card"},el("h3",{text:"By category"}),table([{l:"Category",v:x=>x.cat},{l:"Items",v:x=>x.items,num:1},{l:"In stock",v:x=>x.inS,num:1},{l:"Units",v:x=>x.units,num:1},{l:"Retail $",v:x=>x.retail,f:x=>money(x.retail),num:1}],[...cm.values()],{sort:4,dir:-1,limit:60,onRow:x=>listPop(x.cat,`${fmt(x.items)} items`,x.L,S_COLS,5,[S_HEAD,sRow])})),
+    el("div",{class:"card"},el("h3",{text:"Top 12 by retail value"}),hbars(top.map(r=>({l:r.n.slice(0,34),v:Math.round(r.retail),title:r.k}))))));
+  let st="stock",q="";const host=el("div");
+  const list=()=>(st==="stock"?stk:st==="all"?all:st==="in"?inS:st==="zero"?zero:st==="neg"?neg:ns).filter(r=>!q||(r.k+" "+r.n+" "+r.cat).toLowerCase().includes(q));
+  const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} items · ${fmt(L.reduce((a,r)=>a+Math.max(0,r.qty||0),0))} units · ${money(sum(L,"retail"))} retail`})),table(S_COLS,L,{sort:5,dir:-1,limit:1000}))};
+  b.append(el("div",{class:"card mt"},el("h3",{text:"All inventory items"}),el("div",{class:"filters"},el("select",{onchange:e=>{st=e.target.value;fill()}},[["stock","All stock items"],["in","In stock"],["zero","Zero stock"],["neg","Negative quantity"],["ns","Non-stock (services, fees)"],["all","Everything in the file"]].map(([k,l])=>el("option",{value:k},l))),
+    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("All-inventory",S_HEAD,()=>list().map(sRow)),el("button",{class:"btn sm pri",onclick:()=>stockReport()},icon("dl"),"Inventory Excel report")),host));fill()};
+function availEmpty(kind){return el("div",{class:"card mt"},el("h3",{text:`No ${AVAIL[kind].l.toLowerCase()} data yet`}),el("p",{text:`In Point of Rental open Item Availability, export the ${kind==="rental"?"rental items":"all inventory"} list, then upload it in Products → Files → “${AVAIL[kind].l}”.`}),
+  el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload file"))}
+/* ----- upload slots (Files tab) ----- */
+function availSlots(){const box=el("div");const ws=weekStart();const out=el("div");
+  const handle=async(f,kind)=>{if(!f)return;out.replaceChildren(el("p",{class:"hint",text:"Reading "+f.name+"…"}));S.invBusy=true;
+    try{if(f.size>25*1048576)throw new Error("over 25 MB");const buf=await f.arrayBuffer();const text=await fileText(f.name,buf);const res=parseAvail(text);
+      if(res.kind!==kind&&!confirm(`This file looks like the ${AVAIL[res.kind].l} export, but you used the ${AVAIL[kind].l} slot. Save it as ${AVAIL[kind].l} anyway?`)){out.replaceChildren(el("p",{class:"hint",text:"Cancelled — use the "+AVAIL[res.kind].l+" slot."}));S.invBusy=false;return}
+      const m=/(\d{4})\.(\d{2})\.(\d{2})/.exec(f.name);await libPut(f,buf,kind);await availSave(kind,res,f.name,m?`${m[1]}-${m[2]}-${m[3]}`:null);
+      out.replaceChildren(el("p",{class:"hint",style:"color:var(--ok)",text:`✓ ${AVAIL[kind].l} updated from ${f.name} — ${fmt(res.rows.length)} items.`}));toast(AVAIL[kind].l+" updated")}
+    catch(e){out.replaceChildren(el("p",{class:"diff",text:"✗ "+f.name+" — "+(e.message||e)}))}S.invBusy=false;setTimeout(()=>{if(S.view==="products"&&S.invTab==="files")render(true)},1200)};
+  const slot=kind=>{const x=AVAIL[kind],d=S.avail&&S.avail[kind];const done=d&&new Date(d.at)>=ws;const fi=el("input",{type:"file",accept:".csv,.xlsx,.xls,text/csv",hidden:true,onchange:e=>handle(e.target.files[0],kind)});
+    const c=el("div",{class:"card src slot"+(done?" done":"")},el("div",{class:"src-h"},el("span",{class:"dot "+(d?(done?"ok":"warn"):"")}),el("b",{text:`${x.l} (${x.tbl})`}),d?pill(done?"✓ this week":"older",done?"p-ok":"p-idle"):pill("not uploaded","p-bad")),
+      el("div",{class:"hint",text:x.what}),el("div",{class:"hint mono",style:"font-size:11px",text:"Key · Owned · In · Name · "+(kind==="rental"?"Daily · Weekly · Monthly":"Price")}),
+      d?el("div",{class:"hint",text:`${d.file} · ${fmt(d.rows.length)} items`}):null,d?el("div",{class:"hint",text:`Uploaded ${whenTxt(d.at)}${d.by?" by "+d.by:""}`}):el("div",{class:"hint",text:"Not uploaded yet"}),
+      el("div",{class:"filters",style:"margin:auto 0 0"},el("label",{class:"btn sm pri slot-btn"},icon("upload"),"Upload "+x.l,fi),d?el("button",{class:"btn sm",onclick:()=>{S.invTab=kind;render(true)}},"Open"):null));
+    c.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over")});c.addEventListener("dragleave",()=>c.classList.remove("over"));c.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");handle(e.dataTransfer.files[0],kind)});return c};
+  box.append(el("h3",{class:"mt",text:"Point of Rental — Item Availability exports (separate from Min / Max)"}),el("div",{class:"grid g2 slots"},slot("rental"),slot("stock")),
+    el("p",{class:"hint",text:"Export from POR Tools → Item Availability. Both exports have the same columns, so use the matching slot: the rental list (with daily / weekly / monthly rates) or the all-inventory list."}),out);return box}
+/* ----- Excel reports for the two data sets ----- */
+async function xlsxBook(build,fname){try{const X=await loadXLSX();const wb=X.utils.book_new();
+    const C=(r,c)=>X.utils.encode_cell({r,c});const N=(v,z)=>v==null||v===""?{t:"s",v:""}:{t:"n",v:+v,z};const F=(f,v,z,t)=>({t:t||(typeof v==="string"?"s":"n"),f,v:v==null?0:v,z});
+    const sheet=(rows,w)=>{const ws={};let mr=0,mc=0;rows.forEach((row,r)=>(row||[]).forEach((c,ci)=>{if(c==null)return;ws[C(r,ci)]=typeof c==="object"&&"t" in c?c:typeof c==="number"?N(c):{t:"s",v:String(c)};mc=Math.max(mc,ci);mr=Math.max(mr,r)}));ws["!ref"]=X.utils.encode_range({s:{r:0,c:0},e:{r:mr,c:mc}});if(w)ws["!cols"]=w.map(x=>({wch:x}));return ws};
+    const link=(ws,cell,sn)=>{ws[cell].l={Target:"#'"+sn+"'!A1",Tooltip:"Open"}};
+    build({X,wb,C,N,F,sheet,link});wb.Workbook={CalcPr:{fullCalcOnLoad:true}};
+    await saveFile(fname,new Blob([X.write(wb,{bookType:"xlsx",type:"array",compression:true})],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));footprint("products","report","Excel report downloaded",fname,null,"")}
+  catch(e){toast("Report failed: "+(e.message||e),7000)}}
+function rentalReport(){const Cc=rentalCalc();if(!Cc){toast("Upload the rental availability file first.");return}const d=(S.avail.rental.exported||stamp());
+  xlsxBook(({X,wb,N,F,sheet,link})=>{const rows=[...Cc.rows].sort((a,b)=>(a.type>b.type?1:a.type<b.type?-1:0)||b.out-a.out);const n0=2,last=rows.length+1;
+    const H=["Item","Description","Category","Type","Owned","In store","On rent / in use","Utilization","Daily","Weekly","Monthly","Rate / month used","$ / month on rent","$ / month if all rented","Idle $ / month","Status"];
+    const fl=[H,...rows.map((r,i)=>{const n=i+2;return [r.k,r.n,r.cat,r.type,N(r.own,"#,##0"),N(r.inn,"#,##0"),F(`E${n}-F${n}`,r.out,"#,##0"),F(`IF(AND(D${n}="Rental unit",E${n}>0),G${n}/E${n},"")`,r.util==null?"":r.util,"0%",r.util==null?"s":"n"),
+      r.dy!=null?N(r.dy,"$#,##0.00"):"",r.wk!=null?N(r.wk,"$#,##0.00"):"",r.mo!=null?N(r.mo,"$#,##0.00"):"",F(`IF(K${n}<>"",K${n},IF(J${n}<>"",J${n}*4.33,IF(I${n}<>"",I${n}*30,"")))`,r.rate==null?"":r.rate,"$#,##0.00",r.rate==null?"s":"n"),
+      F(`IF(AND(L${n}<>"",G${n}>0),G${n}*L${n},0)`,r.rev,"$#,##0.00"),F(`IF(AND(L${n}<>"",D${n}="Rental unit"),E${n}*L${n},0)`,r.pot,"$#,##0.00"),F(`IF(AND(L${n}<>"",D${n}="Rental unit",F${n}>0),F${n}*L${n},0)`,r.idle,"$#,##0.00"),r.st]})];
+    const RF="'Rental Fleet'!";const units=Cc.rows.filter(r=>r.type==="Rental unit"&&r.own>0),sumu=k=>units.reduce((a,r)=>a+(r[k]||0),0);
+    const cntSt=s=>F(`COUNTIFS(${RF}D2:D${last},"Rental unit",${RF}P2:P${last},"${s}")`,units.filter(r=>r.st===s).length,"#,##0");
+    const lists=[["Fully out","List - Fully out",units.filter(r=>r.st==="Fully out")],["High use","List - High use",units.filter(r=>r.st==="High use")],["Low use","List - Low use",units.filter(r=>r.st==="Low use")],["Idle","List - Idle",units.filter(r=>r.st==="Idle")],
+      ["Subscriptions in use","List - Subscriptions",Cc.rows.filter(r=>r.type==="Subscription / service"&&r.out>0)],["Maintenance / service","List - Maintenance",Cc.rows.filter(r=>r.type==="Maintenance / service")]];
+    const SUM=[["Rental fleet report"],[`${Cc.file} · ${d}`],["Click a line with “View items →” to open the list."],[],
+      ["Rental units owned",F(`SUMIFS(${RF}E2:E${last},${RF}D2:D${last},"Rental unit")`,sumu("own"),"#,##0")],["On rent now",F(`SUMIFS(${RF}G2:G${last},${RF}D2:D${last},"Rental unit")`,sumu("out"),"#,##0")],
+      ["Available in store",F(`SUMIFS(${RF}F2:F${last},${RF}D2:D${last},"Rental unit")`,sumu("inn"),"#,##0")],["Fleet utilization",F("IFERROR(B6/B5,0)",sumu("own")?sumu("out")/sumu("own"):0,"0.0%")],
+      ["Rental $ / month on rent",F(`SUMIFS(${RF}M2:M${last},${RF}D2:D${last},"Rental unit")`,sumu("rev"),"$#,##0")],["$ / month if everything rented",F(`SUM(${RF}N2:N${last})`,sumu("pot"),"$#,##0")],["Idle capacity $ / month",F(`SUM(${RF}O2:O${last})`,sumu("idle"),"$#,##0")],[],
+      ["Fully out",cntSt("Fully out")],["High use (≥ 80%)",cntSt("High use")],["Normal (30–80%)",cntSt("Normal")],["Low use (< 30%)",cntSt("Low use")],["Idle (0%)",cntSt("Idle")],[],
+      ["Subscriptions in use",F(`SUMIFS(${RF}G2:G${last},${RF}D2:D${last},"Subscription / service")`,Cc.rows.filter(r=>r.type==="Subscription / service").reduce((a,r)=>a+Math.max(0,r.out),0),"#,##0")],
+      ["Subscription $ / month",F(`SUMIFS(${RF}M2:M${last},${RF}D2:D${last},"Subscription / service")`,Cc.rows.filter(r=>r.type==="Subscription / service").reduce((a,r)=>a+r.rev,0),"$#,##0")],
+      ["Maintenance / service required",F(`SUMIFS(${RF}G2:G${last},${RF}D2:D${last},"Maintenance / service")`,Cc.rows.filter(r=>r.type==="Maintenance / service").reduce((a,r)=>a+r.out,0),"#,##0")],[],
+      ["Rules: On rent = Owned − In store · Utilization = on rent ÷ owned · Rate = monthly (or weekly × 4.33, or daily × 30) · Status: Fully out = nothing in store; High use ≥ 80%; Normal 30–80%; Low use < 30%; Idle = 0%. Subscriptions, labour and 9,999 / 99,999 placeholder quantities are not counted as rental units."]];
+    const wsS=sheet(SUM,[40,16,14]);const map={"Fully out":"List - Fully out","High use (≥ 80%)":"List - High use","Low use (< 30%)":"List - Low use","Idle (0%)":"List - Idle","Subscriptions in use":"List - Subscriptions","Subscription $ / month":"List - Subscriptions","Maintenance / service required":"List - Maintenance","Rental units owned":"Rental Fleet","On rent now":"Rental Fleet","Rental $ / month on rent":"Rental Fleet"};
+    SUM.forEach((r,i)=>{const sn=r&&map[r[0]];if(sn){wsS[X.utils.encode_cell({r:i,c:2})]={t:"s",v:"View items →"};link(wsS,X.utils.encode_cell({r:i,c:2}),sn);link(wsS,X.utils.encode_cell({r:i,c:0}),sn)}});wsS["!ref"]=X.utils.encode_range({s:{r:0,c:0},e:{r:SUM.length-1,c:2}});
+    X.utils.book_append_sheet(wb,wsS,"Summary");const wsF=sheet(fl,[18,40,22,20,9,9,10,10,9,9,10,12,13,14,12,12]);wsF["!autofilter"]={ref:`A1:P${last}`};X.utils.book_append_sheet(wb,wsF,"Rental Fleet");
+    const cats=[...new Set(units.map(r=>r.cat))].sort();
+    X.utils.book_append_sheet(wb,sheet([["Category","Items","Owned","On rent","Utilization","$ / month on rent","Idle $ / month"],...cats.map((c,i)=>{const n=i+2,q=`${RF}C2:C${last},A${n},${RF}D2:D${last},"Rental unit"`;const L=units.filter(r=>r.cat===c);
+      return [c,F(`COUNTIFS(${q})`,L.length,"#,##0"),F(`SUMIFS(${RF}E2:E${last},${q})`,L.reduce((a,r)=>a+r.own,0),"#,##0"),F(`SUMIFS(${RF}G2:G${last},${q})`,L.reduce((a,r)=>a+r.out,0),"#,##0"),F(`IFERROR(D${n}/C${n},0)`,0,"0%"),F(`SUMIFS(${RF}M2:M${last},${q})`,L.reduce((a,r)=>a+r.rev,0),"$#,##0"),F(`SUMIFS(${RF}O2:O${last},${q})`,L.reduce((a,r)=>a+r.idle,0),"$#,##0")]})],[28,8,9,9,11,15,13]),"By Category");
+    for(const [t,sn,L] of lists){const ws=sheet([[t+" — "+L.length+" items","","","← Back to Summary"],[],H.slice(0,8).concat(["Monthly","$ / month on rent","Status"]),...L.map(r=>[r.k,r.n,r.cat,r.type,N(r.own),N(r.inn),N(r.out),r.util!=null?N(r.util,"0%"):"",r.mo!=null?N(r.mo,"$#,##0.00"):"",N(r.rev,"$#,##0.00"),r.st])],[18,40,22,20,9,9,10,10,10,13,12]);link(ws,"D1","Summary");X.utils.book_append_sheet(wb,ws,sn)}
+  },`Rental_Fleet-${d}.xlsx`)}
+function stockReport(){const Cc=stockCalc();if(!Cc){toast("Upload the all inventory file first.");return}const d=(S.avail.stock.exported||stamp());
+  xlsxBook(({X,wb,N,F,sheet,link})=>{const rows=[...Cc.rows].sort((a,b)=>(a.virt-b.virt)||b.retail-a.retail);const last=rows.length+1;
+    const H=["Item","Description","Category","Qty on hand","Price","Retail value","Unit cost","Cost value","MIN","MAX","Min/Max status","Stock status"];
+    const fl=[H,...rows.map((r,i)=>{const n=i+2;return [r.k,r.n,r.cat,r.virt?"non-stock":N(r.qty,"#,##0"),r.price!=null?N(r.price,"$#,##0.00"):"",F(`IF(AND(ISNUMBER(D${n}),D${n}>0,ISNUMBER(E${n})),D${n}*E${n},0)`,r.retail,"$#,##0.00"),r.cost!=null?N(r.cost,"$#,##0.00"):"",
+      F(`IF(AND(ISNUMBER(D${n}),D${n}>0,ISNUMBER(G${n})),D${n}*G${n},"")`,r.costVal==null?"":r.costVal,"$#,##0.00",r.costVal==null?"s":"n"),r.min!=null?N(r.min):"",r.max!=null?N(r.max):"",r.mstat,F(`IF(NOT(ISNUMBER(D${n})),"Non-stock",IF(D${n}<0,"Negative — check",IF(D${n}=0,"Zero stock","In stock")))`,r.st,null,"s")]})];
+    const IV="'Inventory'!",stk=Cc.rows.filter(r=>!r.virt),inS=stk.filter(r=>r.qty>0);const c=s=>F(`COUNTIF(${IV}L2:L${last},"${s}")`,Cc.rows.filter(r=>r.st===s).length,"#,##0");
+    const SUM=[["All inventory report"],[`${Cc.file} · ${d}`],["Click a line with “View items →” to open the list."],[],
+      ["Stock items listed",F(`COUNTIF(${IV}D2:D${last},"<>non-stock")`,stk.length,"#,##0")],["Items in stock",c("In stock")],["Units on hand",F(`SUMIF(${IV}D2:D${last},">0")`,inS.reduce((a,r)=>a+r.qty,0),"#,##0")],
+      ["Retail value",F(`SUM(${IV}F2:F${last})`,inS.reduce((a,r)=>a+r.retail,0),"$#,##0")],["Cost value (items with cost)",F(`SUM(${IV}H2:H${last})`,inS.reduce((a,r)=>a+(r.costVal||0),0),"$#,##0")],[],
+      ["Zero stock",c("Zero stock")],["Negative quantity (fix in POR)",c("Negative — check")],["Non-stock items (services, fees)",c("Non-stock")],[],
+      ["Above MAX",F(`COUNTIFS(${IV}K2:K${last},"Above max",${IV}L2:L${last},"In stock")`,inS.filter(r=>r.mstat==="Above max").length,"#,##0")],["Need to order (≤ MIN)",F(`COUNTIFS(${IV}K2:K${last},"REORDER",${IV}L2:L${last},"<>Non-stock")+COUNTIFS(${IV}K2:K${last},"OUT OF STOCK",${IV}L2:L${last},"<>Non-stock")`,stk.filter(r=>r.mstat==="REORDER"||r.mstat==="OUT OF STOCK").length,"#,##0")],[],
+      ["Rules: Retail value = quantity × price in the file · Cost, MIN, MAX and status come from the Min / Max data (Product_Min_Max) when the item key matches · services, labour, subscriptions, fees and 9,999 / 99,999 placeholder quantities are left out."]];
+    const lists=[["Items in stock","List - In stock",inS],["Zero stock","List - Zero stock",stk.filter(r=>r.qty===0)],["Negative quantity (fix in POR)","List - Negative",stk.filter(r=>r.qty<0)],["Above MAX","List - Above max",inS.filter(r=>r.mstat==="Above max")],["Need to order (≤ MIN)","List - Need to order",stk.filter(r=>r.mstat==="REORDER"||r.mstat==="OUT OF STOCK")],["Non-stock items (services, fees)","List - Non-stock",Cc.rows.filter(r=>r.virt)]];
+    const wsS=sheet(SUM,[40,16,14]);const map=Object.fromEntries(lists.map(x=>[x[0],x[1]]));map["Retail value"]="Top Value";map["Stock items listed"]="Inventory";map["Units on hand"]="Inventory";
+    SUM.forEach((r,i)=>{const sn=r&&map[r[0]];if(sn){wsS[X.utils.encode_cell({r:i,c:2})]={t:"s",v:"View items →"};link(wsS,X.utils.encode_cell({r:i,c:2}),sn);link(wsS,X.utils.encode_cell({r:i,c:0}),sn)}});wsS["!ref"]=X.utils.encode_range({s:{r:0,c:0},e:{r:SUM.length-1,c:2}});
+    X.utils.book_append_sheet(wb,wsS,"Summary");const wsI=sheet(fl,[18,40,22,10,10,12,10,12,7,7,14,15]);wsI["!autofilter"]={ref:`A1:L${last}`};X.utils.book_append_sheet(wb,wsI,"Inventory");
+    const cats=[...new Set(stk.map(r=>r.cat))].sort();
+    X.utils.book_append_sheet(wb,sheet([["Category","Items","In stock","Units","Retail value","Cost value"],...cats.map((cn,i)=>{const n=i+2,L=stk.filter(r=>r.cat===cn),q=`${IV}C2:C${last},A${n}`;
+      return [cn,F(`COUNTIFS(${q},${IV}L2:L${last},"<>Non-stock")`,L.length,"#,##0"),F(`COUNTIFS(${q},${IV}L2:L${last},"In stock")`,L.filter(r=>r.qty>0).length,"#,##0"),F(`SUMIFS(${IV}D2:D${last},${q},${IV}L2:L${last},"In stock")`,L.reduce((a,r)=>a+Math.max(0,r.qty),0),"#,##0"),F(`SUMIFS(${IV}F2:F${last},${q})`,L.reduce((a,r)=>a+r.retail,0),"$#,##0"),F(`SUMIFS(${IV}H2:H${last},${q})`,L.reduce((a,r)=>a+(r.costVal||0),0),"$#,##0")]})],[30,8,9,10,13,13]),"By Category");
+    const top=[...inS].sort((a,b)=>b.retail-a.retail);const wsT=sheet([["Top items by retail value","","","← Back to Summary"],[],["Rank","Item","Description","Category","Qty","Price","Retail value"],...top.map((r,i)=>[N(i+1),r.k,r.n,r.cat,N(r.qty),r.price!=null?N(r.price,"$#,##0.00"):"",N(r.retail,"$#,##0.00")])],[6,18,40,22,8,10,13]);link(wsT,"D1","Summary");X.utils.book_append_sheet(wb,wsT,"Top Value");
+    for(const [t,sn,L] of lists){const ws=sheet([[t+" — "+L.length+" items","","","← Back to Summary"],[],H,...L.map(sRow2)],[18,40,22,10,10,12,10,12,7,7,14,15]);link(ws,"D1","Summary");X.utils.book_append_sheet(wb,ws,sn)}
+    function sRow2(r){return [r.k,r.n,r.cat,r.qty==null?"non-stock":N(r.qty),r.price!=null?N(r.price,"$#,##0.00"):"",N(r.retail,"$#,##0.00"),r.cost!=null?N(r.cost,"$#,##0.00"):"",r.costVal!=null?N(r.costVal,"$#,##0.00"):"",r.min??"",r.max??"",r.mstat,r.st]}
+  },`All_Inventory-${d}.xlsx`)}
+
 const whenTxt=t=>t?new Date(t).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}):"";
 function weekStart(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d}
 async function footprint(area,kind,label,file,rows,extra){if(!S.db)return;const at=new Date().toISOString(),me=S.me||{};
