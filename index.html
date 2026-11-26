@@ -572,6 +572,7 @@ table.ptab input:focus{border-color:var(--acc);outline:none}
 @media (max-width:520px){.kpis,.g4{grid-template-columns:1fr 1fr;gap:10px}.kpi .val{font-size:24px}.ttl .sub{display:none}.brow{grid-template-columns:90px 1fr 50px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 .utilbar{display:inline-flex;align-items:center;gap:6px}.utilbar i{display:block;width:54px;height:6px;border-radius:4px;background:var(--line);overflow:hidden}.utilbar u{display:block;height:100%;background:var(--acc);text-decoration:none}.utilbar b{font:600 12px var(--f-num);min-width:34px;text-align:right}
+.cnote{margin:0;padding-left:18px;line-height:1.6}.cnote li{margin:6px 0}
 </style>
 <div class="app">
   <nav class="rail" id="rail" aria-label="Sections"></nav>
@@ -3520,7 +3521,8 @@ INV_TABS.rental=b=>{const C=rentalCalc();if(!C){b.append(availEmpty("rental"));r
   const list=()=>(st==="units"?units:st==="subs"?subs:st==="all"?all:units.filter(r=>r.st===st)).filter(r=>!q||(r.k+" "+r.n+" "+r.cat).toLowerCase().includes(q));
   const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} items · ${fmt(sum(L,"out"))} on rent / in use · ${money(sum(L,"rev"))} / month`})),table(R_COLS,L,{sort:6,dir:-1,limit:1000}))};
   b.append(el("div",{class:"card mt"},el("h3",{text:"All rental items"}),el("div",{class:"filters"},el("select",{onchange:e=>{st=e.target.value;fill()}},[["units","Rental units"],["subs","Subscriptions & services"],["all","Everything in the file"],...sts.map(s=>[s,s])].map(([k,l])=>el("option",{value:k},l))),
-    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Rental-fleet",R_HEAD,()=>list().map(rRow)),el("button",{class:"btn sm pri",onclick:()=>rentalReport()},icon("dl"),"Rental Excel report")),host));fill()};
+    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("Rental-fleet",R_HEAD,()=>list().map(rRow)),el("button",{class:"btn sm pri",onclick:()=>rentalReport()},icon("dl"),"Rental Excel report")),host));fill();
+  b.append(countNote("rental",all.filter(r=>r.virt),all.filter(r=>!r.virt&&r.own>=1000),R_COLS,R_HEAD,rRow))};
 /* ----- all inventory maths ----- */
 function stockCalc(){const d=S.avail&&S.avail.stock;if(!d)return null;const mm=new Map();try{for(const r of calcRows())mm.set(r.k,r)}catch(_){}
   const rows=d.rows.map(x=>{const [k,own,inn,num,part,n,price,,,,cat]=x;const virt=VIRT(own,cat),pk=k.replace(/#\d+$/,"").toUpperCase(),m=mm.get(pk);
@@ -3554,7 +3556,15 @@ INV_TABS.stock=b=>{const C=stockCalc();if(!C){b.append(availEmpty("stock"));retu
   const list=()=>(st==="stock"?stk:st==="all"?all:st==="in"?inS:st==="zero"?zero:st==="neg"?neg:ns).filter(r=>!q||(r.k+" "+r.n+" "+r.cat).toLowerCase().includes(q));
   const fill=()=>{const L=list();host.replaceChildren(el("div",{class:"filters"},el("b",{class:"invcount",text:`${fmt(L.length)} items · ${fmt(L.reduce((a,r)=>a+Math.max(0,r.qty||0),0))} units · ${money(sum(L,"retail"))} retail`})),table(S_COLS,L,{sort:5,dir:-1,limit:1000}))};
   b.append(el("div",{class:"card mt"},el("h3",{text:"All inventory items"}),el("div",{class:"filters"},el("select",{onchange:e=>{st=e.target.value;fill()}},[["stock","All stock items"],["in","In stock"],["zero","Zero stock"],["neg","Negative quantity"],["ns","Non-stock (services, fees)"],["all","Everything in the file"]].map(([k,l])=>el("option",{value:k},l))),
-    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("All-inventory",S_HEAD,()=>list().map(sRow)),el("button",{class:"btn sm pri",onclick:()=>stockReport()},icon("dl"),"Inventory Excel report")),host));fill()};
+    el("input",{type:"search",placeholder:"Search item or category…",oninput:e=>{q=e.target.value.toLowerCase();fill()}}),expBtn("All-inventory",S_HEAD,()=>list().map(sRow)),el("button",{class:"btn sm pri",onclick:()=>stockReport()},icon("dl"),"Inventory Excel report")),host));fill();
+  b.append(countNote("stock",ns,stk.filter(r=>r.qty>=1000),S_COLS,S_HEAD,sRow))};
+function countNote(kind,left,bulk,cols,head,row){const lc={};for(const r of left){const k=/labour/i.test(r.cat)?"Labour":/subscription/i.test(r.cat)?"Subscriptions":/charges/i.test(r.cat)?"Charges (truck, km)":/discount/i.test(r.cat)?"Discounts":"Placeholder qty (9,999 / 99,999)";lc[k]=(lc[k]||0)+1}
+  const li=(t,d)=>el("li",{},el("b",{text:t}),d);
+  return el("div",{class:"card mt"},el("h3",{text:"How this is counted"}),el("ul",{class:"cnote"},
+    li("Left out of the totals: ",el("span",{},`${fmt(left.length)} rows are not physical ${kind==="rental"?"rental units":"stock"} — labour, services, subscriptions, fees and items with placeholder quantities. Point of Rental gives these a fake quantity of 9,999 or 99,999 (meaning “unlimited”) so they can always be put on a contract; counting them would add thousands of units that don't exist. `+Object.entries(lc).map(([k,v])=>`${k}: ${v}`).join(" · ")+(kind==="rental"?". Subscriptions are shown separately in the Active subscriptions card.":"."),
+      el("button",{class:"btn sm",style:"margin-left:6px",onclick:()=>listPop("Left out of the totals",`${fmt(left.length)} rows`,left,cols,3,[head,row])},"See the list"))),
+    li("Bulk stock still counts: ",el("span",{},`${fmt(bulk.length)} items have 1,000 or more on hand but are real ${kind==="rental"?"rental units — extra batteries and chargers rented with radios":"stock — cable sold by the foot, connectors and accessories bought in bulk"}. Their quantity is real, so they stay in the totals. The rule: only exactly 9,900–9,999 or 90,000+ (or a labour / subscription / charges / discount category) counts as a placeholder.`,
+      el("button",{class:"btn sm",style:"margin-left:6px",onclick:()=>listPop("Bulk stock (1,000+ on hand)",`${fmt(bulk.length)} items`,bulk,cols,3,[head,row])},"See the list")))))}
 function availEmpty(kind){return el("div",{class:"card mt"},el("h3",{text:`No ${AVAIL[kind].l.toLowerCase()} data yet`}),el("p",{text:`In Point of Rental open Item Availability, export the ${kind==="rental"?"rental items":"all inventory"} list, then upload it in Products → Files → “${AVAIL[kind].l}”.`}),
   el("button",{class:"btn pri",onclick:()=>{S.invTab="files";render(true)}},icon("upload"),"Upload file"))}
 /* ----- upload slots (Files tab) ----- */
