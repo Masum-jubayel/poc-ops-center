@@ -3761,9 +3761,11 @@ function data(){
     if(!fL||!fC||!fM)throw new Error('Upload the sales lines, contracts and item master files first (Files tab).');
     const [tL,tC,tM]=await Promise.all([loadFile(db,fL),loadFile(db,fC),loadFile(db,fM)]);
     const M=parseCSV(tM),C=parseCSV(tC),L=parseCSV(tL);
-    const mh=M[0],iN=mh.indexOf('NUM'),iK=mh.indexOf('KEY'),iNm=mh.indexOf('Name'),iTy=mh.indexOf('TYPE');
+    const mh=M[0],iN=mh.indexOf('NUM'),iK=mh.indexOf('KEY'),iNm=mh.indexOf('Name'),iTy=mh.indexOf('TYPE'),iHd=mh.indexOf('Header');
     const items=new Map(),byKey=new Map();
-    for(const r of M.slice(1)){const n=String(r[iN]||'').trim();if(!n)continue;const it={num:n,key:(r[iK]||'').trim(),name:(r[iNm]||'').trim(),type:(r[iTy]||'').trim(),m:{},lines:[]};items.set(n,it);if(it.key)byKey.set(it.key.toUpperCase(),it)}
+    for(const r of M.slice(1)){const n=String(r[iN]||'').trim();if(!n)continue;const it={num:n,key:(r[iK]||'').trim(),name:(r[iNm]||'').trim(),type:(r[iTy]||'').trim(),hd:iHd>=0?String(r[iHd]||'').trim().toUpperCase():'',m:{},lines:[]};items.set(n,it);if(it.key)byKey.set(it.key.toUpperCase(),it)}
+    /* serialized units (e.g. HYTRMD782#12) roll up to their header item (HYTRMD782) */
+    for(const it of items.values()){if(it.hd&&it.hd!==it.key.toUpperCase()){const p=byKey.get(it.hd);if(p&&p!==it&&!(p.hd&&p.hd!==p.key.toUpperCase())){it.parent=p;p.kids=(p.kids||0)+1}}}
     const ch=C[0],cI=ch.indexOf('CNTR'),cD=ch.indexOf('DATE'),cCl=ch.indexOf('CLDT'),cCu=ch.indexOf('CUSN'),cJ=ch.indexOf('JobSite'),cCo=ch.indexOf('DeliverToCompany'),cDm=ch.indexOf('DMG');
     const cons=new Map(),months={},cust=new Map();
     const cAgg=n=>{let x=cust.get(n);if(!x){x={n,r:0,s:0,a:0,o:0,cons:new Set(),last:'',onrent:[],res:[],openS:[]};cust.set(n,x)}return x};
@@ -3771,11 +3773,11 @@ function data(){
     for(const r of C.slice(1)){const id=(r[cI]||'').trim();if(!id)continue;const cm=mo(r[cCl]);const c={id,open:day(r[cD]),close:day(r[cCl]),m:cm,st:(r[ch.indexOf('STAT')]||'').trim().toUpperCase(),cus:cn(r[cCu]),job:((cCo>=0&&r[cCo])||(cJ>=0&&r[cJ])||'').trim()};cons.set(id,c);if(cm){const mm=months[cm]||(months[cm]=M0());mm.n++;mm.dw+=+(r[cDm]||0)||0}}
     const lh=L[0],lC=lh.indexOf('CNTR'),lI=lh.indexOf('ITEM'),lQ=lh.indexOf('QTY'),lT=lh.indexOf('TXTY'),lP=lh.indexOf('PRIC');
     for(const r of L.slice(1)){const c=cons.get((r[lC]||'').trim());if(!c)continue;
-      if(!c.m){const it0=items.get(String(r[lI]||'').trim());const ol={c:c.id,open:c.open,cus:c.cus,job:c.job,st:c.st,t:(r[lT]||'').trim(),q:+(r[lQ]||0)||0,p:+(r[lP]||0)||0,it:it0};if(it0)(it0.openL||(it0.openL=[])).push(ol);const cu=cAgg(c.cus);if(kindOf(ol.t)==='r'&&/^O/.test(c.st))cu.onrent.push(ol);else if(/^R/.test(c.st))cu.res.push(ol);else if(/^O/.test(c.st))cu.openS.push(ol);continue}const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;{const cu=cAgg(c.cus);cu[k]+=p;cu.cons.add(c.id);if(c.close>cu.last)cu.last=c.close}
-      const it=items.get(String(r[lI]||'').trim());if(!it)continue;
+      if(!c.m){const raw0=items.get(String(r[lI]||'').trim());const it0=raw0&&(raw0.parent||raw0);const ol={unit:raw0&&raw0.parent?raw0.key:'',c:c.id,open:c.open,cus:c.cus,job:c.job,st:c.st,t:(r[lT]||'').trim(),q:+(r[lQ]||0)||0,p:+(r[lP]||0)||0,it:it0};if(it0)(it0.openL||(it0.openL=[])).push(ol);const cu=cAgg(c.cus);if(kindOf(ol.t)==='r'&&/^O/.test(c.st))cu.onrent.push(ol);else if(/^R/.test(c.st))cu.res.push(ol);else if(/^O/.test(c.st))cu.openS.push(ol);continue}const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;{const cu=cAgg(c.cus);cu[k]+=p;cu.cons.add(c.id);if(c.close>cu.last)cu.last=c.close}
+      const raw=items.get(String(r[lI]||'').trim());if(!raw)continue;const it=raw.parent||raw;
       const im=it.m[c.m]||(it.m[c.m]={u:0,s:0,ru:0,r:0,a:0,o:0,n:0});
       if(k==='s'){im.u+=q;im.s+=p}else if(k==='r'){im.ru+=q;im.r+=p}else if(k==='a'){im.u+=q;im.a+=p}else im.o+=p;im.n++;
-      it.lines.push({c:c.id,m:c.m,close:c.close,open:c.open,cus:c.cus,job:c.job,t:(r[lT]||'').trim(),q,p});
+      it.lines.push({unit:raw.parent?raw.key:'',c:c.id,m:c.m,close:c.close,open:c.open,cus:c.cus,job:c.job,t:(r[lT]||'').trim(),q,p});
       const mi=mm.items[it.num]||(mm.items[it.num]={u:0,s:0,ru:0,r:0,a:0});
       if(k==='s'){mi.u+=q;mi.s+=p}else if(k==='r'){mi.ru+=q;mi.r+=p}else if(k==='a'){mi.u+=q;mi.a+=p}
     }
@@ -3878,20 +3880,20 @@ function openMonth(m,kind){kind=kind||'all';const {pop}=modal();pop.append(h('h3
 
 function openItem(key,focusM){const {pop}=modal();const title=h('h3',null,key);pop.append(title);const ld=loading(pop);
   data().then(D=>{ld.remove();const it=D.byKey.get(String(key).trim().toUpperCase());if(!it){pop.append(h('div',{class:'rv-note'},'No sales lines found for '+key+'.'));return}
-    title.textContent=it.name||it.key;pop.append(h('div',{class:'rv-sub'},it.key+' · item # '+it.num+' · by contract close date (same as the revenue report)'));
+    title.textContent=it.name||it.key;pop.append(h('div',{class:'rv-sub'},it.key+' · item # '+it.num+(it.kids?' · includes its '+it.kids+' numbered units ('+it.key+'#1, #2 …)':'')+' · by contract close date (same as the revenue report)'));
     const ks=D.keys;const t=ks.reduce((a,k)=>{const v=it.m[k];if(v){a.u+=v.u;a.s+=v.s+v.a;a.ru+=v.ru;a.r+=v.r;a.n+=v.n}return a},{u:0,s:0,ru:0,r:0,n:0});
     const rental=t.r>0&&t.r>=t.s;
     pop.append(kpis(rental?[['Times rented',num(t.ru)],['Rental $',money(t.r)],['Units sold',num(t.u)],['Sale $',money(t.s)]]:[['Units sold',num(t.u)],['Sale $',money(t.s)],['Times rented',num(t.ru)],['Rental $',money(t.r)]]));
     const detail=h('div');let selM=focusM||null;
     const showMonth=m=>{selM=m;const ls=it.lines.filter(l=>l.m===m).sort((a,b)=>a.close<b.close?-1:1);
-      detail.replaceChildren(h('div',{class:'rv-h4'},mLabel(m)+' — '+ls.length+' line'+(ls.length===1?'':'s')),ls.length?table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Closed',f:l=>l.close},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ls,l=>openCustomer(l.cus)):h('div',{class:'rv-note'},'Nothing in this month.'));
+      detail.replaceChildren(h('div',{class:'rv-h4'},mLabel(m)+' — '+ls.length+' line'+(ls.length===1?'':'s')),ls.length?table([...(it.kids?[{l:'Unit',f:l=>l.unit||it.key}]:[]),{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Closed',f:l=>l.close},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ls,l=>openCustomer(l.cus)):h('div',{class:'rv-note'},'Nothing in this month.'));
       [...mt.querySelectorAll('tbody tr')].forEach((tr,i)=>tr.classList.toggle('sel',ks[i]===m));detail.scrollIntoView({block:'nearest',behavior:'smooth'})};
     const series=rental?[{n:'Times rented',c:COL.r,v:k=>(it.m[k]||{}).ru}]:[{n:'Units sold',c:COL.u,v:k=>(it.m[k]||{}).u}];
     pop.append(h('div',{class:'rv-h4'},(rental?'Times rented':'Units sold')+' every month — click a bar or a row'),legend(series),chart(ks,series,showMonth,{units:1,h:210}));
     const mt=table([{l:'Month',f:k=>mLabel(k)},{l:'Units sold',n:1,f:k=>num((it.m[k]||{}).u||0)},{l:'Sale $',n:1,f:k=>money(((it.m[k]||{}).s||0)+((it.m[k]||{}).a||0))},{l:'Times rented',n:1,f:k=>num((it.m[k]||{}).ru||0)},{l:'Rental $',n:1,f:k=>money((it.m[k]||{}).r||0)},{l:'Lines',n:1,f:k=>num((it.m[k]||{}).n||0)}],ks,k=>showMonth(k),k=>k===selM);
     pop.append(mt,detail);
     const ol=(it.openL||[]).slice().sort((a,b)=>a.open<b.open?1:-1);
-    if(ol.length)pop.append(h('div',{class:'rv-h4'},'Who has it now — contracts not closed yet ('+ol.length+' line'+(ol.length===1?'':'s')+', counted in revenue once closed). Click a row for the customer.'),table([{l:'Status',f:l=>stName(l.st)},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Phone',f:l=>(custBy(l.cus)||{}).phone||''},{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ol,l=>openCustomer(l.cus)));
+    if(ol.length)pop.append(h('div',{class:'rv-h4'},'Who has it now — contracts not closed yet ('+ol.length+' line'+(ol.length===1?'':'s')+', counted in revenue once closed). Click a row for the customer.'),table([...(it.kids?[{l:'Unit',f:l=>l.unit||it.key}]:[]),{l:'Status',f:l=>stName(l.st)},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Phone',f:l=>(custBy(l.cus)||{}).phone||''},{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ol,l=>openCustomer(l.cus)));
     else if(!t.n)pop.append(h('div',{class:'rv-note'},'No sales or rental lines for this item in the uploaded files.'));
     if(selM)showMonth(selM);
   }).catch(e=>{ld.remove();fail(pop,e)})}
@@ -4039,7 +4041,7 @@ function openCustomer(n){n=cn(n);const {pop}=modal();const title=h('h3',null,'Cu
     pop.append(h('div',{class:'rv-sub'},'Point of Rental customer #'+n+(c?'':' · not in the uploaded customer list (Products → Files)')));
     if(c){const phs=[c.phone,c.phone2].filter(Boolean);const ck=kpis([['Last active',c.last||'—'],['Contact',c.contact||'—'],['Phone',phs.length?h('span',null,phs.flatMap((p,i)=>[i?' / ':null,h('a',{href:'tel:'+p.replace(/[^\d+]/g,'')},p)])):'—'],['Email',c.email?h('span',null,c.email.split(', ').flatMap((e,i)=>[i?', ':null,h('a',{href:'mailto:'+e},e)])):'—'],['Address',c.addr||'—']]);ck.classList.add('rv-cc');pop.append(ck)}
     if(a){pop.append(kpis([['Rental $ (closed)',money(a.r)],['Sales $ (closed)',money(a.s+a.a)],['Contracts closed',num(a.cons.size)],['Last closed',a.last||'—']]));
-      const sec=(t,ls)=>{if(!ls.length)return;pop.append(h('div',{class:'rv-h4'},t+' — '+num(ls.reduce((x,l)=>x+l.q,0))+' units on '+new Set(ls.map(l=>l.c)).size+' contract(s)'),table([{l:'Product',f:l=>l.it?l.it.key:''},{l:'Description',f:l=>l.it?l.it.name:''},{l:'Qty',n:1,f:l=>num(l.q)},{l:'Contract',f:l=>l.c},{l:'Out since',f:l=>l.open},{l:'$ so far',n:1,f:l=>money(l.p)}],ls.slice().sort((x,y)=>x.open<y.open?-1:1),l=>l.it&&openItem(l.it.key)))};
+      const sec=(t,ls)=>{if(!ls.length)return;pop.append(h('div',{class:'rv-h4'},t+' — '+num(ls.reduce((x,l)=>x+l.q,0))+' units on '+new Set(ls.map(l=>l.c)).size+' contract(s)'),table([{l:'Product',f:l=>l.it?l.it.key:''},{l:'Description',f:l=>l.it?l.it.name:''},{l:'Unit',f:l=>l.unit||''},{l:'Qty',n:1,f:l=>num(l.q)},{l:'Contract',f:l=>l.c},{l:'Out since',f:l=>l.open},{l:'$ so far',n:1,f:l=>money(l.p)}],ls.slice().sort((x,y)=>x.open<y.open?-1:1),l=>l.it&&openItem(l.it.key)))};
       sec('On rent now',a.onrent);sec('Reserved',a.res);sec('Other open lines (sales not closed yet)',a.openS);
       if(!a.onrent.length&&!a.res.length)pop.append(h('div',{class:'rv-note'},'Nothing on rent right now.'))}
     else pop.append(h('div',{class:'rv-note'},'No contracts for this customer in the uploaded files.'))
