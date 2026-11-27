@@ -3768,7 +3768,8 @@ function data(){
     const M0=()=>({r:0,s:0,a:0,o:0,dw:0,n:0,items:{}});
     for(const r of C.slice(1)){const id=(r[cI]||'').trim();if(!id)continue;const cm=mo(r[cCl]);const c={id,open:day(r[cD]),close:day(r[cCl]),m:cm,cus:(r[cCu]||'').trim(),job:((cCo>=0&&r[cCo])||(cJ>=0&&r[cJ])||'').trim()};cons.set(id,c);if(cm){const mm=months[cm]||(months[cm]=M0());mm.n++;mm.dw+=+(r[cDm]||0)||0}}
     const lh=L[0],lC=lh.indexOf('CNTR'),lI=lh.indexOf('ITEM'),lQ=lh.indexOf('QTY'),lT=lh.indexOf('TXTY'),lP=lh.indexOf('PRIC');
-    for(const r of L.slice(1)){const c=cons.get((r[lC]||'').trim());if(!c||!c.m)continue;const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;
+    for(const r of L.slice(1)){const c=cons.get((r[lC]||'').trim());if(!c)continue;
+      if(!c.m){const it0=items.get(String(r[lI]||'').trim());if(it0)(it0.openL||(it0.openL=[])).push({c:c.id,open:c.open,cus:c.cus,job:c.job,t:(r[lT]||'').trim(),q:+(r[lQ]||0)||0,p:+(r[lP]||0)||0});continue}const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;
       const it=items.get(String(r[lI]||'').trim());if(!it)continue;
       const im=it.m[c.m]||(it.m[c.m]={u:0,s:0,ru:0,r:0,a:0,o:0,n:0});
       if(k==='s'){im.u+=q;im.s+=p}else if(k==='r'){im.ru+=q;im.r+=p}else if(k==='a'){im.u+=q;im.a+=p}else im.o+=p;im.n++;
@@ -3797,7 +3798,8 @@ const css=`
 .rv-k>div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel2)}
 .rv-k b{display:block;font-family:var(--f-num);font-size:20px;color:var(--fg)}
 .rv-k span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.rv-chart{width:100%;height:auto;display:block}
+.rv-chart{width:100%;height:280px;display:block}
+.rv-pop .rv-chart{height:230px}
 .rv-chart .bar{cursor:pointer;transition:opacity .15s}
 .rv-chart .bar:hover{opacity:.75}
 .rv-chart text{fill:var(--muted);font-size:11px;font-family:var(--f-body)}
@@ -3824,9 +3826,9 @@ const css=`
 document.head.append(h('style',{id:'rv-css'},css));
 
 /* ---------- chart ---------- */
-const COL={s:'var(--acc)',r:'var(--acc2)',a:'var(--warn)',u:'var(--acc)'};
+const COL={s:'var(--acc)',r:'#a78bfa',a:'#f97316',u:'var(--acc)'};
 function chart(keys,series,onClick,opt){
-  opt=opt||{};const W=Math.max(560,keys.length*64),H=opt.h||250,pt=24,pb=30,pl=8,pr=8;
+  opt=opt||{};const W=Math.max(900,keys.length*100),H=opt.h||250,pt=24,pb=30,pl=8,pr=8;
   const tot=keys.map(k=>series.reduce((t,s)=>t+(s.v(k)||0),0));const max=Math.max(1,...tot);
   const bw=(W-pl-pr)/keys.length;const ns='http://www.w3.org/2000/svg';
   const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','rv-chart');
@@ -3878,7 +3880,11 @@ function openItem(key,focusM){const {pop}=modal();const title=h('h3',null,key);p
     const series=rental?[{n:'Times rented',c:COL.r,v:k=>(it.m[k]||{}).ru}]:[{n:'Units sold',c:COL.u,v:k=>(it.m[k]||{}).u}];
     pop.append(h('div',{class:'rv-h4'},(rental?'Times rented':'Units sold')+' every month — click a bar or a row'),legend(series),chart(ks,series,showMonth,{units:1,h:210}));
     const mt=table([{l:'Month',f:k=>mLabel(k)},{l:'Units sold',n:1,f:k=>num((it.m[k]||{}).u||0)},{l:'Sale $',n:1,f:k=>money(((it.m[k]||{}).s||0)+((it.m[k]||{}).a||0))},{l:'Times rented',n:1,f:k=>num((it.m[k]||{}).ru||0)},{l:'Rental $',n:1,f:k=>money((it.m[k]||{}).r||0)},{l:'Lines',n:1,f:k=>num((it.m[k]||{}).n||0)}],ks,k=>showMonth(k),k=>k===selM);
-    pop.append(mt,detail);if(selM)showMonth(selM);
+    pop.append(mt,detail);
+    const ol=(it.openL||[]).slice().sort((a,b)=>a.open<b.open?1:-1);
+    if(ol.length)pop.append(h('div',{class:'rv-h4'},'On contracts not closed yet — '+ol.length+' line'+(ol.length===1?'':'s')+' (counted in revenue once the contract closes)'),table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Customer #',f:l=>l.cus},{l:'Job / company',f:l=>l.job},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ol));
+    else if(!t.n)pop.append(h('div',{class:'rv-note'},'No sales or rental lines for this item in the uploaded files.'));
+    if(selM)showMonth(selM);
   }).catch(e=>{ld.remove();fail(pop,e)})}
 
 /* ---------- page hooks ---------- */
