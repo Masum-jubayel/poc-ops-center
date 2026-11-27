@@ -3976,28 +3976,35 @@ async function saveLink(company,num){const db=firebase.firestore();CU.links[norm
 
 /* parse an uploaded customer list */
 function detectCols(hd){const H=hd.map(x=>String(x||'').trim());const f=(...res)=>{for(const re of res){const i=H.findIndex(x=>re.test(x));if(i>=0)return i}return -1};
-  const phones=H.map((x,i)=>/(phn|phone|tel|cell|mobile|fax)/i.test(x)&&!/fax/i.test(x)?i:-1).filter(i=>i>=0);
+  const phones=H.map((x,i)=>(/(phn|phone|tel|cell|mobile)/i.test(x)||/^work$/i.test(x))&&!/fax|bill/i.test(x)?i:-1).filter(i=>i>=0);
   return {n:f(/^(cnum|cusn|cust(omer)?\s*(#|no\.?|num(ber)?|id)?)$/i,/^(acct|account)\s*(#|no|num(ber)?)?$/i,/^num$/i,/^key$/i,/cust.*(no|num|#|id)/i),
     name:f(/^(name|customer\s*name|company(\s*name)?|cnam|business\s*name)$/i,/^name/i,/company/i),
     contact:f(/^(contact|contact\s*name|attn|attention)$/i,/contact(?!.*(phone|phn|mail))/i),
     email:f(/^e-?mail/i,/mail/i),phones,
     addr:f(/^(adr1|addr1|add1|address|address\s*1|street)$/i,/addr|adr|street/i),
     addr2:f(/^(adr2|addr2|add2|address\s*2)$/i),
-    city:f(/^city$/i,/city|town/i),prov:f(/^(state|st|prov|province)$/i,/state|prov/i),zip:f(/^(zip|postal|postal\s*code|zip\s*code|pcode)$/i,/zip|postal/i),
-    rep:f(/^(salesman|sales\s*rep|rep)$/i,/sales/i)}}
-function parseCustomers(text){const first=text.split('\n')[0]||'';const tab=(first.match(/\t/g)||[]).length>(first.match(/,/g)||[]).length;
-  const rows=tab?text.split('\n').map(l=>l.replace(/\r$/,'').split('\t')):parseCSV(text);
+    city:f(/^city$/i,/city|town/i),prov:f(/^(state|st|prov|province)$/i,/^(state|prov)/i),zip:f(/^(zip|postal|postal\s*code|zip\s*code|pcode)$/i,/zip|postal/i),
+    rep:f(/^(salesman|sales\s*rep|rep)$/i,/sales/i),last:f(/^(lastactive|last\s*active|lastcontract)$/i),
+    first:f(/^first\s*name$/i),lastn:f(/^last\s*name$/i),bill:f(/^billcontact$/i)}}
+const fmtPhone=x=>{const d=x.replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'');return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):x};
+function textRows(text){const first=text.split('\n')[0]||'';const tab=(first.match(/\t/g)||[]).length>(first.match(/,/g)||[]).length;return tab?text.split('\n').map(l=>l.replace(/\r$/,'').split('\t')):parseCSV(text)}
+function parseCustomers(rows){
   let hi=0;for(let i=0;i<Math.min(rows.length,15);i++){const d=detectCols(rows[i]);if(d.name>=0&&(d.n>=0||d.phones.length||d.email>=0)){hi=i;break}}
   const hd=rows[hi],c=detectCols(hd);if(c.name<0)throw new Error('Could not find a customer name column. Headings found: '+hd.slice(0,15).join(', '));
   const g=(r,i)=>i>=0?String(r[i]||'').trim():'';const out=[];
   for(const r of rows.slice(hi+1)){const name=g(r,c.name);const n=c.n>=0?cn(g(r,c.n)):'';if(!name&&!n)continue;
-    const ph=[...new Set(c.phones.map(i=>g(r,i)).filter(x=>x&&x.replace(/\D/g,'').length>=7&&!/^0+$/.test(x.replace(/\D/g,''))))];
+    const ph=[...new Set(c.phones.map(i=>g(r,i)).filter(x=>x&&x.replace(/\D/g,'').length>=7&&!/^0+$/.test(x.replace(/\D/g,''))).map(fmtPhone))];
+    const person=[g(r,c.first),g(r,c.lastn)].filter(Boolean).join(' ');const contact=g(r,c.contact)||g(r,c.bill)||(person&&normName(person)!==normName(name)&&!name.includes(g(r,c.lastn)||'~')?person:'');const lastA=day(g(r,c.last))||g(r,c.last).slice(0,10);
     const addr=[g(r,c.addr),g(r,c.addr2)].filter(Boolean).join(', ');const city=[g(r,c.city),g(r,c.prov),g(r,c.zip)].filter(Boolean).join(' ');
-    out.push({n,name,contact:g(r,c.contact),phone:ph[0]||'',phone2:ph[1]||'',email:g(r,c.email),addr:[addr,city].filter(Boolean).join(', '),rep:g(r,c.rep)})}
+    out.push({n,name,contact,phone:ph[0]||'',phone2:ph[1]||'',email:g(r,c.email).split(/[;,\s]+/).filter(Boolean).join(', '),addr:[addr,city].filter(Boolean).join(', '),rep:g(r,c.rep),last:lastA})}
   const used={number:hd[c.n],name:hd[c.name],contact:hd[c.contact],email:hd[c.email],phones:c.phones.map(i=>hd[i]).join(' + '),address:hd[c.addr],city:hd[c.city],postal:hd[c.zip]};
   return {rows:out,used}}
+function loadSheetJS(){if(window.XLSX)return Promise.resolve(window.XLSX);return new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=()=>ok(window.XLSX);s.onerror=()=>no(new Error('Could not load the Excel reader. Save the file as CSV and upload that instead.'));document.head.append(s)})}
 async function uploadCustomers(file,status){
-  status.textContent='Reading '+file.name+'…';const text=await file.text();const {rows,used}=parseCustomers(text);
+  status.textContent='Reading '+file.name+'…';let grid;
+  if(/\.xlsx?$/i.test(file.name)){const X=await loadSheetJS();const wb=X.read(await file.arrayBuffer(),{type:'array',cellDates:true});grid=X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,defval:'',dateNF:'yyyy-mm-dd'})}
+  else grid=textRows(await file.text());
+  const {rows,used}=parseCustomers(grid);
   if(!rows.length)throw new Error('No customers found in the file.');
   const db=firebase.firestore();const per=1500,parts=Math.ceil(rows.length/per);
   for(let i=0;i<parts;i++){status.textContent='Saving '+Math.min((i+1)*per,rows.length).toLocaleString()+' of '+rows.length.toLocaleString()+'…';await db.doc('inv/cust'+i).set({rows:JSON.stringify(rows.slice(i*per,(i+1)*per))})}
@@ -4010,13 +4017,13 @@ async function uploadCustomers(file,status){
 /* Files tab card */
 function custCard(){const card=h('div',{class:'card mt','data-rv':'cust'});card.append(h('h3',null,'Customer list (Point of Rental) — phone, email and address for fleet maps, licences and rentals'));
   const info=h('div',{class:'rv-note'},'Loading…');const status=h('div',{class:'rv-note'});
-  const inp=h('input',{type:'file',accept:'.csv,.txt,text/csv',style:'display:none'});
+  const inp=h('input',{type:'file',accept:'.csv,.txt,.xls,.xlsx,text/csv',style:'display:none'});
   const btn=h('button',{class:'btn',onclick:()=>inp.click()},'Upload customer list');
   inp.addEventListener('change',async()=>{const f=inp.files[0];if(!f)return;btn.disabled=true;status.style.color='';try{const n=await uploadCustomers(f,status);status.textContent='Saved '+n.toLocaleString()+' customers. Fleet maps, licences and rentals now show their details.';draw()}catch(e){status.style.color='var(--bad)';status.textContent='Upload failed: '+(e.message||e)}btn.disabled=false;inp.value=''});
   const q=h('input',{class:'rv-in',type:'search',placeholder:'Look up a customer — name, number, phone or email…'});const res=h('div');
   q.addEventListener('input',()=>{const s=q.value.trim().toLowerCase();if(s.length<2){res.replaceChildren();return}res.replaceChildren(table([{l:'#',f:c=>c.n},{l:'Name',f:c=>c.name},{l:'Contact',f:c=>c.contact},{l:'Phone',f:c=>[c.phone,c.phone2].filter(Boolean).join(' / ')},{l:'Email',f:c=>c.email},{l:'Address',f:c=>c.addr}],CU.list.filter(c=>(c.n+' '+c.name+' '+c.phone+' '+c.email+' '+c.contact).toLowerCase().includes(s)).slice(0,50),c=>openCustomer(c.n)))});
   const draw=()=>{const m=CU.meta;info.replaceChildren(m?h('span',null,h('b',null,num(m.count)+' customers'),' · '+m.file+' · uploaded '+new Date(m.at).toLocaleString()+(m.by?' by '+m.by:'')+' · '+num(m.withPhone||0)+' with phone, '+num(m.withEmail||0)+' with email. Columns used: '+Object.entries(m.used||{}).filter(([k,v])=>v).map(([k,v])=>k+' = '+v).join(', ')):
-    h('span',null,'Not uploaded yet. In Point of Rental, export the customer list (customer number, name, contact, phone, email, address) as CSV and upload it here — once a week with the other files is enough.'))};
+    h('span',null,'Not uploaded yet. In Point of Rental, export the customer list (customer number, name, contact, phone, email, address) and upload it here — Excel (.xls / .xlsx) or CSV — once a week with the other files is enough.'))};
   card.append(h('div',{style:'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0'},btn,inp),info,status,q,res);
   custData().then(draw).catch(()=>draw());return card}
 
@@ -4025,7 +4032,7 @@ function openCustomer(n){n=cn(n);const {pop}=modal();const title=h('h3',null,'Cu
   Promise.all([custData().catch(()=>CU),data()]).then(([C,D])=>{ld.remove();const c=custBy(n);const a=D.cust.get(n);
     if(c)title.textContent=c.name||('Customer #'+n);
     pop.append(h('div',{class:'rv-sub'},'Point of Rental customer #'+n+(c?'':' · not in the uploaded customer list (Products → Files)')));
-    if(c)pop.append(kpis([['Contact',c.contact||'—'],['Phone',[c.phone,c.phone2].filter(Boolean).join(' / ')||'—'],['Email',c.email||'—'],['Address',c.addr||'—']]));
+    if(c)pop.append(kpis([['Last active',c.last||'—'],['Contact',c.contact||'—'],['Phone',[c.phone,c.phone2].filter(Boolean).join(' / ')||'—'],['Email',c.email||'—'],['Address',c.addr||'—']]));
     if(a){pop.append(kpis([['Rental $ (closed)',money(a.r)],['Sales $ (closed)',money(a.s+a.a)],['Contracts closed',num(a.cons.size)],['Last closed',a.last||'—']]));
       const sec=(t,ls)=>{if(!ls.length)return;pop.append(h('div',{class:'rv-h4'},t+' — '+num(ls.reduce((x,l)=>x+l.q,0))+' units on '+new Set(ls.map(l=>l.c)).size+' contract(s)'),table([{l:'Product',f:l=>l.it?l.it.key:''},{l:'Description',f:l=>l.it?l.it.name:''},{l:'Qty',n:1,f:l=>num(l.q)},{l:'Contract',f:l=>l.c},{l:'Out since',f:l=>l.open},{l:'$ so far',n:1,f:l=>money(l.p)}],ls.slice().sort((x,y)=>x.open<y.open?-1:1),l=>l.it&&openItem(l.it.key)))};
       sec('On rent now',a.onrent);sec('Reserved',a.res);sec('Other open lines (sales not closed yet)',a.openS);
