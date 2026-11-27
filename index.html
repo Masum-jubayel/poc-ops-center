@@ -3747,6 +3747,7 @@ function parseCSV(t){const rows=[];let row=[],f='',q=false;for(let i=0;i<t.lengt
 async function loadFile(db,f){let b='';for(let i=0;i<(f.chunks||1);i++){const s=await db.doc('invchunks/'+f.id+'_'+i).get();b+=(s.data()||{}).d||''}const bin=Uint8Array.from(atob(b),c=>c.charCodeAt(0));if(!f.gz)return new TextDecoder().decode(bin);const ds=new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));return await new Response(ds).text()}
 const mo=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec((s||'').trim());return m?m[3]+'-'+m[1].padStart(2,'0'):''};
 const day=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec((s||'').trim());return m?m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'):''};
+const cn=v=>String(v==null?'':v).trim().replace(/^0+(?=\d)/,'');
 function kindOf(t){t=(t||'').trim().toUpperCase();if(t==='RR'||t==='RX'||t==='R')return 'r';if(t==='S'||t==='SS')return 's';if(t==='SA')return 'a';return 'o'}
 function data(){
   if(RV.d)return Promise.resolve(RV.d);
@@ -3764,12 +3765,13 @@ function data(){
     const items=new Map(),byKey=new Map();
     for(const r of M.slice(1)){const n=String(r[iN]||'').trim();if(!n)continue;const it={num:n,key:(r[iK]||'').trim(),name:(r[iNm]||'').trim(),type:(r[iTy]||'').trim(),m:{},lines:[]};items.set(n,it);if(it.key)byKey.set(it.key.toUpperCase(),it)}
     const ch=C[0],cI=ch.indexOf('CNTR'),cD=ch.indexOf('DATE'),cCl=ch.indexOf('CLDT'),cCu=ch.indexOf('CUSN'),cJ=ch.indexOf('JobSite'),cCo=ch.indexOf('DeliverToCompany'),cDm=ch.indexOf('DMG');
-    const cons=new Map(),months={};
+    const cons=new Map(),months={},cust=new Map();
+    const cAgg=n=>{let x=cust.get(n);if(!x){x={n,r:0,s:0,a:0,o:0,cons:new Set(),last:'',onrent:[],res:[],openS:[]};cust.set(n,x)}return x};
     const M0=()=>({r:0,s:0,a:0,o:0,dw:0,n:0,items:{}});
-    for(const r of C.slice(1)){const id=(r[cI]||'').trim();if(!id)continue;const cm=mo(r[cCl]);const c={id,open:day(r[cD]),close:day(r[cCl]),m:cm,cus:(r[cCu]||'').trim(),job:((cCo>=0&&r[cCo])||(cJ>=0&&r[cJ])||'').trim()};cons.set(id,c);if(cm){const mm=months[cm]||(months[cm]=M0());mm.n++;mm.dw+=+(r[cDm]||0)||0}}
+    for(const r of C.slice(1)){const id=(r[cI]||'').trim();if(!id)continue;const cm=mo(r[cCl]);const c={id,open:day(r[cD]),close:day(r[cCl]),m:cm,st:(r[ch.indexOf('STAT')]||'').trim().toUpperCase(),cus:cn(r[cCu]),job:((cCo>=0&&r[cCo])||(cJ>=0&&r[cJ])||'').trim()};cons.set(id,c);if(cm){const mm=months[cm]||(months[cm]=M0());mm.n++;mm.dw+=+(r[cDm]||0)||0}}
     const lh=L[0],lC=lh.indexOf('CNTR'),lI=lh.indexOf('ITEM'),lQ=lh.indexOf('QTY'),lT=lh.indexOf('TXTY'),lP=lh.indexOf('PRIC');
     for(const r of L.slice(1)){const c=cons.get((r[lC]||'').trim());if(!c)continue;
-      if(!c.m){const it0=items.get(String(r[lI]||'').trim());if(it0)(it0.openL||(it0.openL=[])).push({c:c.id,open:c.open,cus:c.cus,job:c.job,t:(r[lT]||'').trim(),q:+(r[lQ]||0)||0,p:+(r[lP]||0)||0});continue}const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;
+      if(!c.m){const it0=items.get(String(r[lI]||'').trim());const ol={c:c.id,open:c.open,cus:c.cus,job:c.job,st:c.st,t:(r[lT]||'').trim(),q:+(r[lQ]||0)||0,p:+(r[lP]||0)||0,it:it0};if(it0)(it0.openL||(it0.openL=[])).push(ol);const cu=cAgg(c.cus);if(kindOf(ol.t)==='r'&&/^O/.test(c.st))cu.onrent.push(ol);else if(/^R/.test(c.st))cu.res.push(ol);else if(/^O/.test(c.st))cu.openS.push(ol);continue}const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;{const cu=cAgg(c.cus);cu[k]+=p;cu.cons.add(c.id);if(c.close>cu.last)cu.last=c.close}
       const it=items.get(String(r[lI]||'').trim());if(!it)continue;
       const im=it.m[c.m]||(it.m[c.m]={u:0,s:0,ru:0,r:0,a:0,o:0,n:0});
       if(k==='s'){im.u+=q;im.s+=p}else if(k==='r'){im.ru+=q;im.r+=p}else if(k==='a'){im.u+=q;im.a+=p}else im.o+=p;im.n++;
@@ -3780,7 +3782,7 @@ function data(){
     let keys=Object.keys(months).filter(Boolean).sort();
     /* older months only hold a few long-running rentals; start at the first month with product sales */
     const first=keys.find(k=>months[k].s>0);if(first)keys=keys.filter(k=>k>=first);
-    RV.d={items,byKey,months,keys,files:{lines:fL.name,contracts:fC.name}};return RV.d;
+    RV.d={items,byKey,months,keys,cust,files:{lines:fL.name,contracts:fC.name}};return RV.d;
   })().catch(e=>{RV.p=null;RV.err=e;throw e});
   return RV.p;
 }
@@ -3821,6 +3823,9 @@ const css=`
 .rv-click tbody tr:hover td{background:color-mix(in srgb,var(--acc) 8%,transparent)}
 .invpop svg rect{cursor:pointer}
 .rv-mbar svg rect{cursor:pointer}
+.rv-ct{font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:400}
+.rv-kc em{white-space:normal;word-break:break-word}
+.rv-fm a,.rv-note a{color:var(--acc)}
 .rv-h4{margin:16px 0 6px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 `;
 document.head.append(h('style',{id:'rv-css'},css));
@@ -3875,14 +3880,14 @@ function openItem(key,focusM){const {pop}=modal();const title=h('h3',null,key);p
     pop.append(kpis(rental?[['Times rented',num(t.ru)],['Rental $',money(t.r)],['Units sold',num(t.u)],['Sale $',money(t.s)]]:[['Units sold',num(t.u)],['Sale $',money(t.s)],['Times rented',num(t.ru)],['Rental $',money(t.r)]]));
     const detail=h('div');let selM=focusM||null;
     const showMonth=m=>{selM=m;const ls=it.lines.filter(l=>l.m===m).sort((a,b)=>a.close<b.close?-1:1);
-      detail.replaceChildren(h('div',{class:'rv-h4'},mLabel(m)+' — '+ls.length+' line'+(ls.length===1?'':'s')),ls.length?table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Closed',f:l=>l.close},{l:'Customer #',f:l=>l.cus},{l:'Job / company',f:l=>l.job},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ls):h('div',{class:'rv-note'},'Nothing in this month.'));
+      detail.replaceChildren(h('div',{class:'rv-h4'},mLabel(m)+' — '+ls.length+' line'+(ls.length===1?'':'s')),ls.length?table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Closed',f:l=>l.close},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ls,l=>openCustomer(l.cus)):h('div',{class:'rv-note'},'Nothing in this month.'));
       [...mt.querySelectorAll('tbody tr')].forEach((tr,i)=>tr.classList.toggle('sel',ks[i]===m));detail.scrollIntoView({block:'nearest',behavior:'smooth'})};
     const series=rental?[{n:'Times rented',c:COL.r,v:k=>(it.m[k]||{}).ru}]:[{n:'Units sold',c:COL.u,v:k=>(it.m[k]||{}).u}];
     pop.append(h('div',{class:'rv-h4'},(rental?'Times rented':'Units sold')+' every month — click a bar or a row'),legend(series),chart(ks,series,showMonth,{units:1,h:210}));
     const mt=table([{l:'Month',f:k=>mLabel(k)},{l:'Units sold',n:1,f:k=>num((it.m[k]||{}).u||0)},{l:'Sale $',n:1,f:k=>money(((it.m[k]||{}).s||0)+((it.m[k]||{}).a||0))},{l:'Times rented',n:1,f:k=>num((it.m[k]||{}).ru||0)},{l:'Rental $',n:1,f:k=>money((it.m[k]||{}).r||0)},{l:'Lines',n:1,f:k=>num((it.m[k]||{}).n||0)}],ks,k=>showMonth(k),k=>k===selM);
     pop.append(mt,detail);
     const ol=(it.openL||[]).slice().sort((a,b)=>a.open<b.open?1:-1);
-    if(ol.length)pop.append(h('div',{class:'rv-h4'},'On contracts not closed yet — '+ol.length+' line'+(ol.length===1?'':'s')+' (counted in revenue once the contract closes)'),table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Customer #',f:l=>l.cus},{l:'Job / company',f:l=>l.job},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ol));
+    if(ol.length)pop.append(h('div',{class:'rv-h4'},'Who has it now — contracts not closed yet ('+ol.length+' line'+(ol.length===1?'':'s')+', counted in revenue once closed). Click a row for the customer.'),table([{l:'Status',f:l=>stName(l.st)},{l:'Customer',f:l=>custLabel(l.cus)},{l:'Phone',f:l=>(custBy(l.cus)||{}).phone||''},{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ol,l=>openCustomer(l.cus)));
     else if(!t.n)pop.append(h('div',{class:'rv-note'},'No sales or rental lines for this item in the uploaded files.'));
     if(selM)showMonth(selM);
   }).catch(e=>{ld.remove();fail(pop,e)})}
@@ -3899,7 +3904,7 @@ function revCard(kind){
     const last=ks[ks.length-1];
     body.replaceChildren(legend(series),chart(ks,series,k=>openMonth(k,kind)),
       h('div',{class:'rv-note'},'Total '+money(tot)+' · '+mLabel(ks[0])+' – '+mLabel(last)+'. Month = contract close date. Click any bar for that month’s products. '+(last?mLabel(last)+' is only part of the month (files exported '+((D.files.lines.match(/(\d{4})\.(\d{2})\.(\d{2})/)||[]).slice(1).join('-')||'recently')+').':'')),
-      kind==='all'?monthTable(D,ks):null)
+      ...(kind==='all'?[monthTable(D,ks)]:[]))
   }).catch(e=>body.replaceChildren(h('div',{class:'rv-note',style:'color:var(--bad)'},'Could not load the files: '+(e&&e.message||e))));
   return card}
 function monthTable(D,ks){return table([{l:'Month',f:k=>mLabel(k)},{l:'Contracts',n:1,f:k=>num(D.months[k].n)},{l:'Rental',n:1,f:k=>money(D.months[k].r)},{l:'Sale',n:1,f:k=>money(D.months[k].s)},{l:'Asset sale',n:1,f:k=>money(D.months[k].a)},{l:'Total',n:1,f:k=>money(D.months[k].r+D.months[k].s+D.months[k].a+D.months[k].dw)}],ks.slice().reverse(),k=>openMonth(k,'all'))}
@@ -3928,18 +3933,150 @@ function apply(){
   if(tab==='Overview'){const c=cardByTitle(v,/^Sales by month/);if(c&&!v.querySelector('[data-rv="all"]')){c.replaceWith(revCard('all'))}}
   if(tab==='Rental fleet'&&!v.querySelector('[data-rv="r"]')){const first=v.querySelector('.card');if(first)first.before(revCard('r'))}
   if(tab==='All inventory'&&!v.querySelector('[data-rv="s"]')){const first=v.querySelector('.card');if(first)first.before(revCard('s'))}
+  if(tab==='Rental fleet'&&!v.querySelector('[data-rv="who"]')){const rc=v.querySelector('[data-rv="r"]');if(rc)rc.after(whoCard())}
+  if(tab==='Files'&&!v.querySelector('[data-rv="cust"]')){const first=v.querySelector('.card');if(first)first.before(custCard())}
   if(tab==='Rental fleet')hookRows(cardByTitle(v,/^All rental items/),0);
   if(tab==='All inventory')hookRows(cardByTitle(v,/^All inventory items/),0);
   if(tab==='Best sellers')bestSearch(v);
   hookSvgMonths(v);
 }
 function applyPop(){document.querySelectorAll('.fmt-scrim .invpop').forEach(p=>{hookSvgMonths(p);if(!p.querySelector('.rv-hint')&&p.querySelector('svg')){p.querySelector('svg').closest('div').after(h('div',{class:'rv-note rv-hint'},'Click a bar to see that month’s contracts, or ',h('a',{href:'#',onclick:e=>{e.preventDefault();const k=popKey(p);if(k)openItem(k)}},'open every month for this product'),'.'))}})}
-let tm=0;const sched=()=>{if(tm)return;tm=setTimeout(()=>{tm=0;try{apply();applyPop()}catch(e){console.warn('rv',e)}},120)};
+let tm=0;const sched=()=>{if(tm)return;tm=setTimeout(()=>{tm=0;try{apply();applyPop()}catch(e){console.warn('rv',e)}try{applyContacts()}catch(e){console.warn('rv-c',e)}},150)};
 new MutationObserver(sched).observe(document.body,{childList:true,subtree:true});
 addEventListener('hashchange',sched);
 /* warm the data in the background once someone opens Products */
 let warmed=false;setInterval(()=>{if(!warmed&&/^#products/.test(location.hash||'')&&window.firebase&&firebase.auth&&firebase.auth().currentUser){warmed=true;data().catch(()=>{warmed=false})}},2000);
-window.rvOpenItem=openItem;window.rvOpenMonth=openMonth;
+window.rvOpenItem=openItem;window.rvOpenMonth=openMonth;window.rvOpenCustomer=openCustomer;
+/* ---------- customers (Point of Rental customer list) ---------- */
+const CU={list:null,byNum:new Map(),byName:new Map(),links:{},meta:null,p:null,tried:false};
+const stName=s=>{s=(s||'').toUpperCase();return /^O/.test(s)?'On rent / open':/^Q/.test(s)?'Quote':/^R/.test(s)?'Reserved':s||'Open'};
+const normName=s=>String(s||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9 ]+/g,' ').replace(/\b(the|inc|incorporated|ltd|limited|corp|corporation|co|company|llc|lp|ltee|ltée|enr)\b/g,' ').replace(/\s+/g,' ').trim();
+function custBy(n){return CU.byNum.get(cn(n))||null}
+function custLabel(n){const c=custBy(n);return c?(c.name||('#'+n))+' (#'+cn(n)+')':'#'+cn(n)}
+function custData(force){
+  if(CU.list&&!force)return Promise.resolve(CU);
+  if(CU.p&&!force)return CU.p;
+  CU.p=(async()=>{const db=firebase.firestore();
+    const m=(await db.doc('inv/custmeta').get()).data();CU.meta=m||null;CU.list=[];CU.byNum=new Map();CU.byName=new Map();
+    try{CU.links=((await db.doc('inv/custlinks').get()).data()||{}).map||{}}catch(e){CU.links={}}
+    if(m&&m.parts){for(let i=0;i<m.parts;i++){const d=(await db.doc('inv/cust'+i).get()).data();if(d&&d.rows)CU.list.push(...JSON.parse(d.rows))}}
+    for(const c of CU.list){CU.byNum.set(cn(c.n),c);const k=normName(c.name);if(k&&!CU.byName.has(k))CU.byName.set(k,c)}
+    return CU})().catch(e=>{CU.p=null;throw e});
+  return CU.p}
+function findCustomer(company){
+  if(!company||!CU.list)return null;const k=normName(company);if(!k)return null;
+  const ln=CU.links[k];if(ln&&CU.byNum.get(cn(ln)))return CU.byNum.get(cn(ln));
+  if(CU.byName.has(k))return CU.byName.get(k);
+  const tk=new Set(k.split(' ').filter(w=>w.length>1));if(!tk.size)return null;
+  let best=null,bs=0;for(const c of CU.list){const n=normName(c.name);if(!n)continue;
+    if(n.startsWith(k+' ')||k.startsWith(n+' ')){const sc=0.9;if(sc>bs){bs=sc;best=c}continue}
+    const t2=new Set(n.split(' ').filter(w=>w.length>1));let inter=0;tk.forEach(w=>{if(t2.has(w))inter++});const sc=inter/(tk.size+t2.size-inter);if(sc>bs){bs=sc;best=c}}
+  return bs>=0.75?best:null}
+async function saveLink(company,num){const db=firebase.firestore();CU.links[normName(company)]=num;await db.doc('inv/custlinks').set({map:CU.links,at:new Date().toISOString()},{merge:true})}
+
+/* parse an uploaded customer list */
+function detectCols(hd){const H=hd.map(x=>String(x||'').trim());const f=(...res)=>{for(const re of res){const i=H.findIndex(x=>re.test(x));if(i>=0)return i}return -1};
+  const phones=H.map((x,i)=>/(phn|phone|tel|cell|mobile|fax)/i.test(x)&&!/fax/i.test(x)?i:-1).filter(i=>i>=0);
+  return {n:f(/^(cnum|cusn|cust(omer)?\s*(#|no\.?|num(ber)?|id)?)$/i,/^(acct|account)\s*(#|no|num(ber)?)?$/i,/^num$/i,/^key$/i,/cust.*(no|num|#|id)/i),
+    name:f(/^(name|customer\s*name|company(\s*name)?|cnam|business\s*name)$/i,/^name/i,/company/i),
+    contact:f(/^(contact|contact\s*name|attn|attention)$/i,/contact(?!.*(phone|phn|mail))/i),
+    email:f(/^e-?mail/i,/mail/i),phones,
+    addr:f(/^(adr1|addr1|add1|address|address\s*1|street)$/i,/addr|adr|street/i),
+    addr2:f(/^(adr2|addr2|add2|address\s*2)$/i),
+    city:f(/^city$/i,/city|town/i),prov:f(/^(state|st|prov|province)$/i,/state|prov/i),zip:f(/^(zip|postal|postal\s*code|zip\s*code|pcode)$/i,/zip|postal/i),
+    rep:f(/^(salesman|sales\s*rep|rep)$/i,/sales/i)}}
+function parseCustomers(text){const first=text.split('\n')[0]||'';const tab=(first.match(/\t/g)||[]).length>(first.match(/,/g)||[]).length;
+  const rows=tab?text.split('\n').map(l=>l.replace(/\r$/,'').split('\t')):parseCSV(text);
+  let hi=0;for(let i=0;i<Math.min(rows.length,15);i++){const d=detectCols(rows[i]);if(d.name>=0&&(d.n>=0||d.phones.length||d.email>=0)){hi=i;break}}
+  const hd=rows[hi],c=detectCols(hd);if(c.name<0)throw new Error('Could not find a customer name column. Headings found: '+hd.slice(0,15).join(', '));
+  const g=(r,i)=>i>=0?String(r[i]||'').trim():'';const out=[];
+  for(const r of rows.slice(hi+1)){const name=g(r,c.name);const n=c.n>=0?cn(g(r,c.n)):'';if(!name&&!n)continue;
+    const ph=[...new Set(c.phones.map(i=>g(r,i)).filter(x=>x&&x.replace(/\D/g,'').length>=7&&!/^0+$/.test(x.replace(/\D/g,''))))];
+    const addr=[g(r,c.addr),g(r,c.addr2)].filter(Boolean).join(', ');const city=[g(r,c.city),g(r,c.prov),g(r,c.zip)].filter(Boolean).join(' ');
+    out.push({n,name,contact:g(r,c.contact),phone:ph[0]||'',phone2:ph[1]||'',email:g(r,c.email),addr:[addr,city].filter(Boolean).join(', '),rep:g(r,c.rep)})}
+  const used={number:hd[c.n],name:hd[c.name],contact:hd[c.contact],email:hd[c.email],phones:c.phones.map(i=>hd[i]).join(' + '),address:hd[c.addr],city:hd[c.city],postal:hd[c.zip]};
+  return {rows:out,used}}
+async function uploadCustomers(file,status){
+  status.textContent='Reading '+file.name+'…';const text=await file.text();const {rows,used}=parseCustomers(text);
+  if(!rows.length)throw new Error('No customers found in the file.');
+  const db=firebase.firestore();const per=1500,parts=Math.ceil(rows.length/per);
+  for(let i=0;i<parts;i++){status.textContent='Saving '+Math.min((i+1)*per,rows.length).toLocaleString()+' of '+rows.length.toLocaleString()+'…';await db.doc('inv/cust'+i).set({rows:JSON.stringify(rows.slice(i*per,(i+1)*per))})}
+  const u=firebase.auth().currentUser;const by=u?(u.email||'').split('@')[0]:'';
+  const old=CU.meta&&CU.meta.parts||0;for(let i=parts;i<old;i++){try{await db.doc('inv/cust'+i).delete()}catch(e){}}
+  await db.doc('inv/custmeta').set({parts,count:rows.length,file:file.name,at:new Date().toISOString(),by,used,withEmail:rows.filter(r=>r.email).length,withPhone:rows.filter(r=>r.phone).length});
+  try{await db.collection('uplog').add({at:new Date().toISOString(),by,action:'upload',file:file.name,what:'Customer list',rows:rows.length})}catch(e){}
+  await custData(true);return rows.length}
+
+/* Files tab card */
+function custCard(){const card=h('div',{class:'card mt','data-rv':'cust'});card.append(h('h3',null,'Customer list (Point of Rental) — phone, email and address for fleet maps, licences and rentals'));
+  const info=h('div',{class:'rv-note'},'Loading…');const status=h('div',{class:'rv-note'});
+  const inp=h('input',{type:'file',accept:'.csv,.txt,text/csv',style:'display:none'});
+  const btn=h('button',{class:'btn',onclick:()=>inp.click()},'Upload customer list');
+  inp.addEventListener('change',async()=>{const f=inp.files[0];if(!f)return;btn.disabled=true;status.style.color='';try{const n=await uploadCustomers(f,status);status.textContent='Saved '+n.toLocaleString()+' customers. Fleet maps, licences and rentals now show their details.';draw()}catch(e){status.style.color='var(--bad)';status.textContent='Upload failed: '+(e.message||e)}btn.disabled=false;inp.value=''});
+  const q=h('input',{class:'rv-in',type:'search',placeholder:'Look up a customer — name, number, phone or email…'});const res=h('div');
+  q.addEventListener('input',()=>{const s=q.value.trim().toLowerCase();if(s.length<2){res.replaceChildren();return}res.replaceChildren(table([{l:'#',f:c=>c.n},{l:'Name',f:c=>c.name},{l:'Contact',f:c=>c.contact},{l:'Phone',f:c=>[c.phone,c.phone2].filter(Boolean).join(' / ')},{l:'Email',f:c=>c.email},{l:'Address',f:c=>c.addr}],CU.list.filter(c=>(c.n+' '+c.name+' '+c.phone+' '+c.email+' '+c.contact).toLowerCase().includes(s)).slice(0,50),c=>openCustomer(c.n)))});
+  const draw=()=>{const m=CU.meta;info.replaceChildren(m?h('span',null,h('b',null,num(m.count)+' customers'),' · '+m.file+' · uploaded '+new Date(m.at).toLocaleString()+(m.by?' by '+m.by:'')+' · '+num(m.withPhone||0)+' with phone, '+num(m.withEmail||0)+' with email. Columns used: '+Object.entries(m.used||{}).filter(([k,v])=>v).map(([k,v])=>k+' = '+v).join(', ')):
+    h('span',null,'Not uploaded yet. In Point of Rental, export the customer list (customer number, name, contact, phone, email, address) as CSV and upload it here — once a week with the other files is enough.'))};
+  card.append(h('div',{style:'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0'},btn,inp),info,status,q,res);
+  custData().then(draw).catch(()=>draw());return card}
+
+/* customer popup */
+function openCustomer(n){n=cn(n);const {pop}=modal();const title=h('h3',null,'Customer #'+n);pop.append(title);const ld=loading(pop);
+  Promise.all([custData().catch(()=>CU),data()]).then(([C,D])=>{ld.remove();const c=custBy(n);const a=D.cust.get(n);
+    if(c)title.textContent=c.name||('Customer #'+n);
+    pop.append(h('div',{class:'rv-sub'},'Point of Rental customer #'+n+(c?'':' · not in the uploaded customer list (Products → Files)')));
+    if(c)pop.append(kpis([['Contact',c.contact||'—'],['Phone',[c.phone,c.phone2].filter(Boolean).join(' / ')||'—'],['Email',c.email||'—'],['Address',c.addr||'—']]));
+    if(a){pop.append(kpis([['Rental $ (closed)',money(a.r)],['Sales $ (closed)',money(a.s+a.a)],['Contracts closed',num(a.cons.size)],['Last closed',a.last||'—']]));
+      const sec=(t,ls)=>{if(!ls.length)return;pop.append(h('div',{class:'rv-h4'},t+' — '+num(ls.reduce((x,l)=>x+l.q,0))+' units on '+new Set(ls.map(l=>l.c)).size+' contract(s)'),table([{l:'Product',f:l=>l.it?l.it.key:''},{l:'Description',f:l=>l.it?l.it.name:''},{l:'Qty',n:1,f:l=>num(l.q)},{l:'Contract',f:l=>l.c},{l:'Out since',f:l=>l.open},{l:'$ so far',n:1,f:l=>money(l.p)}],ls.slice().sort((x,y)=>x.open<y.open?-1:1),l=>l.it&&openItem(l.it.key)))};
+      sec('On rent now',a.onrent);sec('Reserved',a.res);sec('Other open lines (sales not closed yet)',a.openS);
+      if(!a.onrent.length&&!a.res.length)pop.append(h('div',{class:'rv-note'},'Nothing on rent right now.'))}
+    else pop.append(h('div',{class:'rv-note'},'No contracts for this customer in the uploaded files.'))
+  }).catch(e=>{ld.remove();fail(pop,e)})}
+
+/* Rental fleet: who has what */
+function whoCard(){const card=h('div',{class:'card mt','data-rv':'who'});card.append(h('h3',null,'On rent now — which company has which product'));const body=h('div',null,h('div',{class:'rv-note'},'Loading…'));card.append(body);
+  Promise.all([custData().catch(()=>CU),data()]).then(([C,D])=>{const rows=[...D.cust.values()].filter(a=>a.onrent.length||a.res.length).map(a=>({a,c:custBy(a.n),u:a.onrent.reduce((x,l)=>x+l.q,0),it:new Set(a.onrent.map(l=>l.it&&l.it.key)).size,ru:a.res.reduce((x,l)=>x+l.q,0)})).sort((x,y)=>y.u-x.u);
+    const q=h('input',{class:'rv-in',type:'search',placeholder:'Search company, product, phone or email…'});const box=h('div');
+    const draw=()=>{const s=q.value.trim().toLowerCase();const rr=rows.filter(r=>!s||((r.c?r.c.name+' '+r.c.phone+' '+r.c.email+' '+r.c.contact:'')+' '+r.a.n+' '+r.a.onrent.concat(r.a.res).map(l=>l.it?l.it.key+' '+l.it.name:'').join(' ')).toLowerCase().includes(s));
+      box.replaceChildren(table([{l:'Company',f:r=>r.c?r.c.name:'#'+r.a.n},{l:'Contact',f:r=>r.c?r.c.contact:''},{l:'Phone',f:r=>r.c?r.c.phone:''},{l:'Email',f:r=>r.c?r.c.email:''},{l:'Units on rent',n:1,f:r=>num(r.u)},{l:'Products',n:1,f:r=>num(r.it)},{l:'Reserved',n:1,f:r=>num(r.ru)},{l:'What they have',f:r=>[...new Set(r.a.onrent.map(l=>l.it?l.it.key:''))].filter(Boolean).slice(0,4).join(', ')+(new Set(r.a.onrent.map(l=>l.it&&l.it.key)).size>4?' …':'')}],rr,r=>openCustomer(r.a.n)))};
+    q.addEventListener('input',draw);draw();
+    body.replaceChildren(h('div',{class:'rv-note',style:'margin:0 0 6px'},num(rows.filter(r=>r.u).length)+' companies have '+num(rows.reduce((x,r)=>x+r.u,0))+' units out on open contracts. Click a company for its details and every item. '+(CU.meta?'':'Upload the customer list in Products → Files to see names, phone and email.')),q,box)
+  }).catch(e=>body.replaceChildren(h('div',{class:'rv-note',style:'color:var(--bad)'},'Could not load: '+(e&&e.message||e))));return card}
+
+/* contacts on fleet maps, licence cards and company tables */
+function contactLine(c){return [c.contact,c.phone,c.email].filter(Boolean).join(' · ')}
+function applyContacts(){
+  const hs=location.hash||'';const needs=/^#(fleet|licences|companies|alerts|devices|matching|status)/.test(hs)||document.querySelector('.drawer .item .kv');
+  if(!needs)return;
+  if(!CU.list){if(!CU.tried&&window.firebase&&firebase.auth().currentUser){CU.tried=true;custData().then(()=>sched()).catch(()=>{})}return}
+  if(!CU.list.length)return;
+  /* fleet map customer details */
+  const v=document.querySelector('#main .view');
+  if(v&&/^#fleet-/.test(hs)){const cd=[...v.querySelectorAll('.card')].find(c=>/customer details/i.test(c.textContent)&&c.querySelector('.form'));
+    if(cd&&!cd.querySelector('.rv-fm')){const labs=[...cd.querySelectorAll('.form>label')];const inp=t=>{const l=labs.find(l=>new RegExp('^'+t,'i').test(l.textContent.trim()));return l&&l.querySelector('input')};
+      const nameI=inp('customer name'),company=nameI&&nameI.value.trim();const line=h('div',{class:'rv-note rv-fm'});cd.querySelector('.form').after(line);
+      const setv=(i,val,force)=>{if(!i||!val||i.disabled)return false;if(i.value.trim()&&!force)return false;i.focus();i.value=val;i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));i.blur();return true};
+      const fill=(c,force)=>{let n=0;n+=setv(inp('contact'),c.contact,force);n+=setv(inp('phone'),[c.phone,c.phone2].filter(Boolean).join(' / '),force);n+=setv(inp('email'),c.email,force);n+=setv(inp('address'),c.addr,force);return n};
+      const show=c=>{line.replaceChildren(c?h('span',null,'Point of Rental customer ',h('a',{href:'#',onclick:e=>{e.preventDefault();openCustomer(c.n)}},c.name+' #'+c.n),' · '+(contactLine(c)||'no phone or email on file')+' · ',h('a',{href:'#',onclick:e=>{e.preventDefault();const k=fill(c,true);toastMsg(k?'Filled from Point of Rental':'Nothing new to fill')}},'Fill from Point of Rental'),' · ',h('a',{href:'#',onclick:e=>{e.preventDefault();pick(company,c2=>{show(c2);fill(c2,true)})}},'Wrong customer?')):
+        h('span',null,'No matching customer in the Point of Rental list. ',h('a',{href:'#',onclick:e=>{e.preventDefault();pick(company,c2=>{show(c2);fill(c2,true)})}},'Pick the customer'),' to fill phone and email.'))};
+      const c=findCustomer(company);show(c);if(c){const k=fill(c,false);if(k)line.append(h('span',null,' — filled '+k+' empty field'+(k===1?'':'s')+'.'))}}}
+  /* licence / device cards */
+  document.querySelectorAll('.item .kv').forEach(kv=>{if(kv.dataset.rvc)return;const cell=[...kv.children].find(d=>{const s=d.querySelector('span');return s&&/^company$/i.test(s.textContent.trim())});if(!cell)return;kv.dataset.rvc='1';
+    const c=findCustomer((cell.querySelector('em')||cell.lastElementChild||{}).textContent);
+    const add=(l,val,click)=>{const em=h('em',null,val||'—');if(click){em.style.cursor='pointer';em.style.textDecoration='underline';em.addEventListener('click',click)}kv.append(h('div',{class:'rv-kc'},h('span',null,l),em))};
+    if(c){add('Customer contact',c.contact);add('Customer phone',[c.phone,c.phone2].filter(Boolean).join(' / '));add('Customer email',c.email);add('Customer address',c.addr);add('POR customer #',c.n,()=>openCustomer(c.n))}
+    else add('Customer contact','Not found in the Point of Rental customer list')});
+  /* tables with a Company column (licences, fleet list, companies) */
+  if(v)v.querySelectorAll('table').forEach(t=>{const ths=[...t.querySelectorAll('thead th')];let ci=ths.findIndex(th=>/^(company|customer)\b/i.test(th.textContent.trim()));if(ci<0&&/^#fleet$/.test(hs)&&ths.length)ci=0;if(ci<0)return;
+    t.querySelectorAll('tbody tr').forEach(tr=>{if(tr.dataset.rvc)return;const td=tr.children[ci];if(!td)return;tr.dataset.rvc='1';const c=findCustomer(td.textContent.trim());if(!c)return;const ln=contactLine(c);if(ln)td.append(h('div',{class:'rv-ct'},ln))})});
+}
+function toastMsg(t){const d=h('div',{style:'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99;background:var(--panel2);border:1px solid var(--acc);color:var(--fg);padding:10px 16px;border-radius:10px;font-size:13px'},t);document.body.append(d);setTimeout(()=>d.remove(),2500)}
+function pick(company,done){const {pop,close}=modal();pop.append(h('h3',null,'Which Point of Rental customer is '+(company||'this')+'?'));
+  const q=h('input',{class:'rv-in',type:'search',placeholder:'Search name, number, phone or email…',value:company||''});const box=h('div');pop.append(q,box);
+  const draw=()=>{const s=normName(q.value);const raw=q.value.trim().toLowerCase();const rr=CU.list.filter(c=>!raw||normName(c.name).includes(s)||(c.n+' '+c.phone+' '+c.email).toLowerCase().includes(raw)).slice(0,60);
+    box.replaceChildren(table([{l:'#',f:c=>c.n},{l:'Name',f:c=>c.name},{l:'Contact',f:c=>c.contact},{l:'Phone',f:c=>c.phone},{l:'Email',f:c=>c.email}],rr,async c=>{try{await saveLink(company,c.n)}catch(e){}close();done(c);sched()}))};
+  q.addEventListener('input',draw);draw();setTimeout(()=>q.focus(),50)}
+
 })();
 </script>
 </body>
