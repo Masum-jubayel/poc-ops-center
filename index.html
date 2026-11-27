@@ -3826,6 +3826,10 @@ const css=`
 .rv-ct{font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:400}
 .rv-kc em{white-space:normal;word-break:break-word}
 .rv-fm a,.rv-note a{color:var(--acc)}
+.rv-k b{overflow-wrap:anywhere}
+.rv-k.rv-cc b{font-size:14.5px;font-family:var(--f-body);line-height:1.35;font-weight:600}
+.rv-cc a{color:var(--acc);text-decoration:none}
+.rv-cc a:hover{text-decoration:underline}
 .rv-h4{margin:16px 0 6px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 `;
 document.head.append(h('style',{id:'rv-css'},css));
@@ -3937,6 +3941,7 @@ function apply(){
   if(tab==='Files'&&!v.querySelector('[data-rv="cust"]')){const first=v.querySelector('.card');if(first)first.before(custCard())}
   if(tab==='Rental fleet')hookRows(cardByTitle(v,/^All rental items/),0);
   if(tab==='All inventory')hookRows(cardByTitle(v,/^All inventory items/),0);
+  if(tab==='Month by month'&&!v.querySelector('[data-rv="all"]')){const old=cardByTitle(v,/^Company totals by month/);if(old){old.before(revCard('all'));const t=old.querySelector(':scope>h3');if(t)t.textContent='Product sales by month — stock products only, by the day the contract was opened (not the revenue report)'}}
   if(tab==='Best sellers')bestSearch(v);
   hookSvgMonths(v);
 }
@@ -4032,7 +4037,7 @@ function openCustomer(n){n=cn(n);const {pop}=modal();const title=h('h3',null,'Cu
   Promise.all([custData().catch(()=>CU),data()]).then(([C,D])=>{ld.remove();const c=custBy(n);const a=D.cust.get(n);
     if(c)title.textContent=c.name||('Customer #'+n);
     pop.append(h('div',{class:'rv-sub'},'Point of Rental customer #'+n+(c?'':' · not in the uploaded customer list (Products → Files)')));
-    if(c)pop.append(kpis([['Last active',c.last||'—'],['Contact',c.contact||'—'],['Phone',[c.phone,c.phone2].filter(Boolean).join(' / ')||'—'],['Email',c.email||'—'],['Address',c.addr||'—']]));
+    if(c){const phs=[c.phone,c.phone2].filter(Boolean);const ck=kpis([['Last active',c.last||'—'],['Contact',c.contact||'—'],['Phone',phs.length?h('span',null,phs.map((p,i)=>[i?' / ':null,h('a',{href:'tel:'+p.replace(/[^\d+]/g,'')},p)])):'—'],['Email',c.email?h('span',null,c.email.split(', ').map((e,i)=>[i?', ':null,h('a',{href:'mailto:'+e},e)])):'—'],['Address',c.addr||'—']]);ck.classList.add('rv-cc');pop.append(ck)}
     if(a){pop.append(kpis([['Rental $ (closed)',money(a.r)],['Sales $ (closed)',money(a.s+a.a)],['Contracts closed',num(a.cons.size)],['Last closed',a.last||'—']]));
       const sec=(t,ls)=>{if(!ls.length)return;pop.append(h('div',{class:'rv-h4'},t+' — '+num(ls.reduce((x,l)=>x+l.q,0))+' units on '+new Set(ls.map(l=>l.c)).size+' contract(s)'),table([{l:'Product',f:l=>l.it?l.it.key:''},{l:'Description',f:l=>l.it?l.it.name:''},{l:'Qty',n:1,f:l=>num(l.q)},{l:'Contract',f:l=>l.c},{l:'Out since',f:l=>l.open},{l:'$ so far',n:1,f:l=>money(l.p)}],ls.slice().sort((x,y)=>x.open<y.open?-1:1),l=>l.it&&openItem(l.it.key)))};
       sec('On rent now',a.onrent);sec('Reserved',a.res);sec('Other open lines (sales not closed yet)',a.openS);
