@@ -3729,5 +3729,212 @@ render();
 })();
 </script>
 
+<script>
+/* ================= v27 revenue + clickable add-on ================= */
+(function(){
+'use strict';
+const RV={d:null,p:null,err:null};
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const money=n=>(n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString();
+const num=n=>Math.round(n).toLocaleString();
+const mLabel=m=>{const [y,mm]=m.split('-');return MN[+mm-1]+' '+y.slice(2)};
+const labelToMonth=t=>{const x=/^([A-Z][a-z]{2})\s+(\d{2})$/.exec((t||'').trim());if(!x)return null;const i=MN.indexOf(x[1]);return i<0?null:'20'+x[2]+'-'+String(i+1).padStart(2,'0')};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function h(tag,attrs,...kids){const e=document.createElement(tag);if(attrs)for(const k in attrs){const v=attrs[k];if(v==null||v===false)continue;if(k==='class')e.className=v;else if(k==='html')e.innerHTML=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(k==='style')e.style.cssText=v;else e.setAttribute(k,v)}for(const c of kids.flat()){if(c==null||c===false)continue;e.append(c.nodeType?c:document.createTextNode(String(c)))}return e}
+
+/* ---------- data ---------- */
+function parseCSV(t){const rows=[];let row=[],f='',q=false;for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}else if(c==='"')q=true;else if(c===','){row.push(f);f=''}else if(c==='\n'){row.push(f.replace(/\r$/,''));rows.push(row);row=[];f=''}else f+=c}if(f||row.length){row.push(f);rows.push(row)}return rows}
+async function loadFile(db,f){let b='';for(let i=0;i<(f.chunks||1);i++){const s=await db.doc('invchunks/'+f.id+'_'+i).get();b+=(s.data()||{}).d||''}const bin=Uint8Array.from(atob(b),c=>c.charCodeAt(0));if(!f.gz)return new TextDecoder().decode(bin);const ds=new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'));return await new Response(ds).text()}
+const mo=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec((s||'').trim());return m?m[3]+'-'+m[1].padStart(2,'0'):''};
+const day=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec((s||'').trim());return m?m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'):''};
+function kindOf(t){t=(t||'').trim().toUpperCase();if(t==='RR'||t==='RX'||t==='R')return 'r';if(t==='S'||t==='SS')return 's';if(t==='SA')return 'a';return 'o'}
+function data(){
+  if(RV.d)return Promise.resolve(RV.d);
+  if(RV.p)return RV.p;
+  RV.p=(async()=>{
+    const db=firebase.firestore();
+    const files=(await db.collection('invfiles').get()).docs.map(d=>Object.assign({id:d.id},d.data()));
+    let up={};try{up=(await db.doc('inv/uploads').get()).data()||{}}catch(e){}
+    const pick=(slot,word)=>{const nm=up[slot]&&up[slot].file;let c=files.filter(f=>nm&&f.name===nm);if(!c.length)c=files.filter(f=>(f.name||'').toLowerCase().includes(word));c.sort((a,b)=>a.id<b.id?1:-1);return c[0]};
+    const fL=pick('lines','sales lines'),fC=pick('contracts','contracts'),fM=pick('items','item master');
+    if(!fL||!fC||!fM)throw new Error('Upload the sales lines, contracts and item master files first (Files tab).');
+    const [tL,tC,tM]=await Promise.all([loadFile(db,fL),loadFile(db,fC),loadFile(db,fM)]);
+    const M=parseCSV(tM),C=parseCSV(tC),L=parseCSV(tL);
+    const mh=M[0],iN=mh.indexOf('NUM'),iK=mh.indexOf('KEY'),iNm=mh.indexOf('Name'),iTy=mh.indexOf('TYPE');
+    const items=new Map(),byKey=new Map();
+    for(const r of M.slice(1)){const n=String(r[iN]||'').trim();if(!n)continue;const it={num:n,key:(r[iK]||'').trim(),name:(r[iNm]||'').trim(),type:(r[iTy]||'').trim(),m:{},lines:[]};items.set(n,it);if(it.key)byKey.set(it.key.toUpperCase(),it)}
+    const ch=C[0],cI=ch.indexOf('CNTR'),cD=ch.indexOf('DATE'),cCl=ch.indexOf('CLDT'),cCu=ch.indexOf('CUSN'),cJ=ch.indexOf('JobSite'),cCo=ch.indexOf('DeliverToCompany'),cDm=ch.indexOf('DMG');
+    const cons=new Map(),months={};
+    const M0=()=>({r:0,s:0,a:0,o:0,dw:0,n:0,items:{}});
+    for(const r of C.slice(1)){const id=(r[cI]||'').trim();if(!id)continue;const cm=mo(r[cCl]);const c={id,open:day(r[cD]),close:day(r[cCl]),m:cm,cus:(r[cCu]||'').trim(),job:((cCo>=0&&r[cCo])||(cJ>=0&&r[cJ])||'').trim()};cons.set(id,c);if(cm){const mm=months[cm]||(months[cm]=M0());mm.n++;mm.dw+=+(r[cDm]||0)||0}}
+    const lh=L[0],lC=lh.indexOf('CNTR'),lI=lh.indexOf('ITEM'),lQ=lh.indexOf('QTY'),lT=lh.indexOf('TXTY'),lP=lh.indexOf('PRIC');
+    for(const r of L.slice(1)){const c=cons.get((r[lC]||'').trim());if(!c||!c.m)continue;const k=kindOf(r[lT]);const p=+(r[lP]||0)||0,q=+(r[lQ]||0)||0;const mm=months[c.m]||(months[c.m]=M0());mm[k]+=p;
+      const it=items.get(String(r[lI]||'').trim());if(!it)continue;
+      const im=it.m[c.m]||(it.m[c.m]={u:0,s:0,ru:0,r:0,a:0,o:0,n:0});
+      if(k==='s'){im.u+=q;im.s+=p}else if(k==='r'){im.ru+=q;im.r+=p}else if(k==='a'){im.u+=q;im.a+=p}else im.o+=p;im.n++;
+      it.lines.push({c:c.id,m:c.m,close:c.close,open:c.open,cus:c.cus,job:c.job,t:(r[lT]||'').trim(),q,p});
+      const mi=mm.items[it.num]||(mm.items[it.num]={u:0,s:0,ru:0,r:0,a:0});
+      if(k==='s'){mi.u+=q;mi.s+=p}else if(k==='r'){mi.ru+=q;mi.r+=p}else if(k==='a'){mi.u+=q;mi.a+=p}
+    }
+    let keys=Object.keys(months).filter(Boolean).sort();
+    /* older months only hold a few long-running rentals; start at the first month with product sales */
+    const first=keys.find(k=>months[k].s>0);if(first)keys=keys.filter(k=>k>=first);
+    RV.d={items,byKey,months,keys,files:{lines:fL.name,contracts:fC.name}};return RV.d;
+  })().catch(e=>{RV.p=null;RV.err=e;throw e});
+  return RV.p;
+}
+
+/* ---------- css ---------- */
+const css=`
+.fmt-scrim .ibtn:hover,.rv-scrim .ibtn:hover,.invpop .ibtn:hover{transform:none!important}
+.rv-scrim{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto}
+.rv-pop{width:min(920px,100%);max-height:none;position:relative;animation:none!important;transform:none!important}
+.rv-pop h3{margin:0 40px 4px 0}
+.rv-x{position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:18px;line-height:1;cursor:pointer}
+.rv-x:hover{border-color:var(--acc)}
+.rv-sub{color:var(--muted);font-size:12.5px;margin-bottom:12px}
+.rv-k{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0 14px}
+.rv-k>div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel2)}
+.rv-k b{display:block;font-family:var(--f-num);font-size:20px;color:var(--fg)}
+.rv-k span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rv-chart{width:100%;height:auto;display:block}
+.rv-chart .bar{cursor:pointer;transition:opacity .15s}
+.rv-chart .bar:hover{opacity:.75}
+.rv-chart text{fill:var(--muted);font-size:11px;font-family:var(--f-body)}
+.rv-chart text.v{fill:var(--fg);font-size:10.5px}
+.rv-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:6px 0}
+.rv-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.rv-t{width:100%;border-collapse:collapse;font-size:13px}
+.rv-t th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.rv-t td{padding:7px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.rv-t td.n,.rv-t th.n{text-align:right;font-family:var(--f-num)}
+.rv-t tr.go{cursor:pointer}
+.rv-t tr.go:hover td{background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.rv-t tr.sel td{background:color-mix(in srgb,var(--acc) 16%,transparent)}
+.rv-wrap{overflow:auto;max-height:52vh}
+.rv-note{font-size:12px;color:var(--muted);margin-top:8px}
+.rv-in{width:100%;max-width:420px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font:inherit;margin:4px 0 10px}
+.rv-in:focus{outline:none;border-color:var(--acc)}
+.rv-click tbody tr{cursor:pointer}
+.rv-click tbody tr:hover td{background:color-mix(in srgb,var(--acc) 8%,transparent)}
+.invpop svg rect{cursor:pointer}
+.rv-mbar svg rect{cursor:pointer}
+.rv-h4{margin:16px 0 6px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+`;
+document.head.append(h('style',{id:'rv-css'},css));
+
+/* ---------- chart ---------- */
+const COL={s:'var(--acc)',r:'var(--acc2)',a:'var(--warn)',u:'var(--acc)'};
+function chart(keys,series,onClick,opt){
+  opt=opt||{};const W=Math.max(560,keys.length*64),H=opt.h||250,pt=24,pb=30,pl=8,pr=8;
+  const tot=keys.map(k=>series.reduce((t,s)=>t+(s.v(k)||0),0));const max=Math.max(1,...tot);
+  const bw=(W-pl-pr)/keys.length;const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('class','rv-chart');
+  const mk=(t,a)=>{const e=document.createElementNS(ns,t);for(const k in a)e.setAttribute(k,a[k]);return e};
+  keys.forEach((k,i)=>{let y=H-pb;const g=mk('g',{class:'bar'});const x=pl+i*bw+bw*0.16,w=bw*0.68;
+    series.forEach(s=>{const v=s.v(k)||0;if(v<=0)return;const hh=(H-pt-pb)*v/max;y-=hh;g.append(mk('rect',{x,y,width:w,height:Math.max(hh,1),fill:s.c,rx:3}))});
+    g.append(mk('rect',{x:pl+i*bw,y:pt-10,width:bw,height:H-pt-pb+10,fill:'transparent'}));
+    const tt=mk('title',{});tt.textContent=mLabel(k)+'\n'+series.map(s=>s.n+': '+(opt.units?num(s.v(k)||0):money(s.v(k)||0))).join('\n')+(series.length>1?'\nTotal: '+(opt.units?num(tot[i]):money(tot[i])):'')+'\nClick for details';g.append(tt);
+    const tv=mk('text',{x:x+w/2,y:Math.max(12,y-5),'text-anchor':'middle',class:'v'});tv.textContent=opt.units?num(tot[i]):(tot[i]>=1000?'$'+Math.round(tot[i]/1000)+'k':money(tot[i]));if(tot[i]>0)g.append(tv);
+    const tl=mk('text',{x:x+w/2,y:H-10,'text-anchor':'middle'});tl.textContent=mLabel(k);g.append(tl);
+    g.addEventListener('click',()=>onClick(k));svg.append(g)});
+  return h('div',{style:'overflow-x:auto'},svg);
+}
+const legend=series=>h('div',{class:'rv-leg'},series.map(s=>h('span',null,h('i',{style:'background:'+s.c}),s.n)));
+
+/* ---------- modal ---------- */
+function modal(){const pop=h('div',{class:'card rv-pop'});const sc=h('div',{class:'rv-scrim',onclick:e=>{if(e.target===sc)close()}},pop);
+  const close=()=>{sc.remove();document.removeEventListener('keydown',kd,true)};const kd=e=>{if(e.key==='Escape'){e.stopPropagation();close()}};
+  document.addEventListener('keydown',kd,true);pop.append(h('button',{class:'rv-x',title:'Close',onclick:close},'✕'));document.body.append(sc);return {pop,close}}
+function loading(pop){const l=h('div',{class:'rv-note'},'Loading the sales lines and contracts files…');pop.append(l);return l}
+function fail(pop,e){pop.append(h('div',{class:'rv-note',style:'color:var(--bad)'},'Could not load the files: '+(e&&e.message||e)))}
+function kpis(list){return h('div',{class:'rv-k'},list.map(([l,v])=>h('div',null,h('span',null,l),h('b',null,v))))}
+function table(cols,rows,onRow,sel){const t=h('table',{class:'rv-t'},h('thead',null,h('tr',null,cols.map(c=>h('th',{class:c.n?'n':''},c.l)))));const tb=h('tbody');rows.forEach(r=>{const tr=h('tr',{class:(onRow?'go':'')+(sel&&sel(r)?' sel':'')},cols.map(c=>h('td',{class:c.n?'n':''},c.f(r))));if(onRow)tr.addEventListener('click',()=>onRow(r,tr));tb.append(tr)});t.append(tb);return h('div',{class:'rv-wrap'},t)}
+
+/* month detail: kind = 'all' | 'r' | 's' */
+function openMonth(m,kind){kind=kind||'all';const {pop}=modal();pop.append(h('h3',null,'Revenue — '+mLabel(m)));const ld=loading(pop);
+  data().then(D=>{ld.remove();const mm=D.months[m];if(!mm){pop.append(h('div',{class:'rv-note'},'No closed contracts in this month.'));return}
+    pop.append(h('div',{class:'rv-sub'},'Contracts closed in '+mLabel(m)+' · same rule as the Point of Rental Revenue Trend Report (close date)'));
+    pop.append(kpis([['Rental',money(mm.r)],['Sale',money(mm.s)],['Asset sale',money(mm.a)],['Total',money(mm.r+mm.s+mm.a+mm.dw)],['Contracts',num(mm.n)]]));
+    let rows=Object.entries(mm.items).map(([n,v])=>Object.assign({it:D.items.get(n)},v)).filter(r=>r.it);
+    const val=r=>kind==='r'?r.r:kind==='s'?r.s:r.s+r.r+r.a;rows=rows.filter(r=>val(r)!==0||r.u||r.ru).sort((a,b)=>val(b)-val(a));
+    const q=h('input',{class:'rv-in',placeholder:'Search product in '+mLabel(m)+'…'});pop.append(h('div',{class:'rv-h4'},(kind==='r'?'Rental items':kind==='s'?'Products sold':'Products')+' this month — click one to see every month'),q);
+    const box=h('div');pop.append(box);
+    const draw=()=>{const s=q.value.trim().toLowerCase();const rr=rows.filter(r=>!s||(r.it.key+' '+r.it.name).toLowerCase().includes(s)).slice(0,400);box.replaceChildren(table([
+      {l:'Product',f:r=>r.it.key},{l:'Description',f:r=>r.it.name},{l:'Units sold',n:1,f:r=>num(r.u)},{l:'Sale $',n:1,f:r=>money(r.s+r.a)},{l:'Times rented',n:1,f:r=>num(r.ru)},{l:'Rental $',n:1,f:r=>money(r.r)}],rr,r=>openItem(r.it.key,m)))};
+    q.addEventListener('input',draw);draw();
+  }).catch(e=>{ld.remove();fail(pop,e)})}
+
+function openItem(key,focusM){const {pop}=modal();const title=h('h3',null,key);pop.append(title);const ld=loading(pop);
+  data().then(D=>{ld.remove();const it=D.byKey.get(String(key).trim().toUpperCase());if(!it){pop.append(h('div',{class:'rv-note'},'No sales lines found for '+key+'.'));return}
+    title.textContent=it.name||it.key;pop.append(h('div',{class:'rv-sub'},it.key+' · item # '+it.num+' · by contract close date (same as the revenue report)'));
+    const ks=D.keys;const t=ks.reduce((a,k)=>{const v=it.m[k];if(v){a.u+=v.u;a.s+=v.s+v.a;a.ru+=v.ru;a.r+=v.r;a.n+=v.n}return a},{u:0,s:0,ru:0,r:0,n:0});
+    const rental=t.r>0&&t.r>=t.s;
+    pop.append(kpis(rental?[['Times rented',num(t.ru)],['Rental $',money(t.r)],['Units sold',num(t.u)],['Sale $',money(t.s)]]:[['Units sold',num(t.u)],['Sale $',money(t.s)],['Times rented',num(t.ru)],['Rental $',money(t.r)]]));
+    const detail=h('div');let selM=focusM||null;
+    const showMonth=m=>{selM=m;const ls=it.lines.filter(l=>l.m===m).sort((a,b)=>a.close<b.close?-1:1);
+      detail.replaceChildren(h('div',{class:'rv-h4'},mLabel(m)+' — '+ls.length+' line'+(ls.length===1?'':'s')),ls.length?table([{l:'Contract',f:l=>l.c},{l:'Opened',f:l=>l.open},{l:'Closed',f:l=>l.close},{l:'Customer #',f:l=>l.cus},{l:'Job / company',f:l=>l.job},{l:'Type',f:l=>({RR:'Rental',RX:'Rental',R:'Rental',S:'Sale',SS:'Sale',SA:'Asset sale'}[l.t]||l.t)},{l:'Qty',n:1,f:l=>num(l.q)},{l:'$',n:1,f:l=>money(l.p)}],ls):h('div',{class:'rv-note'},'Nothing in this month.'));
+      [...mt.querySelectorAll('tbody tr')].forEach((tr,i)=>tr.classList.toggle('sel',ks[i]===m));detail.scrollIntoView({block:'nearest',behavior:'smooth'})};
+    const series=rental?[{n:'Times rented',c:COL.r,v:k=>(it.m[k]||{}).ru}]:[{n:'Units sold',c:COL.u,v:k=>(it.m[k]||{}).u}];
+    pop.append(h('div',{class:'rv-h4'},(rental?'Times rented':'Units sold')+' every month — click a bar or a row'),legend(series),chart(ks,series,showMonth,{units:1,h:210}));
+    const mt=table([{l:'Month',f:k=>mLabel(k)},{l:'Units sold',n:1,f:k=>num((it.m[k]||{}).u||0)},{l:'Sale $',n:1,f:k=>money(((it.m[k]||{}).s||0)+((it.m[k]||{}).a||0))},{l:'Times rented',n:1,f:k=>num((it.m[k]||{}).ru||0)},{l:'Rental $',n:1,f:k=>money((it.m[k]||{}).r||0)},{l:'Lines',n:1,f:k=>num((it.m[k]||{}).n||0)}],ks,k=>showMonth(k),k=>k===selM);
+    pop.append(mt,detail);if(selM)showMonth(selM);
+  }).catch(e=>{ld.remove();fail(pop,e)})}
+
+/* ---------- page hooks ---------- */
+const activeTab=()=>{const b=document.querySelector('.invtabs button.on');return b?b.textContent.trim():''};
+const cardByTitle=(v,re)=>[...v.querySelectorAll('.card')].find(c=>{const t=c.querySelector(':scope>h3');return t&&re.test(t.textContent)});
+function revCard(kind){
+  const card=h('div',{class:'card mt rv-card','data-rv':kind});
+  const title={all:'Revenue by month — Rental · Sale · Asset (matches the Revenue Trend Report)',r:'Rental revenue month to month',s:'Product sales revenue month to month'}[kind];
+  card.append(h('h3',null,title));const body=h('div',null,h('div',{class:'rv-note'},'Loading…'));card.append(body);
+  data().then(D=>{const ks=D.keys;const series=kind==='r'?[{n:'Rental',c:COL.r,v:k=>D.months[k].r}]:kind==='s'?[{n:'Sale',c:COL.s,v:k=>D.months[k].s},{n:'Asset sale',c:COL.a,v:k=>D.months[k].a}]:[{n:'Rental',c:COL.r,v:k=>D.months[k].r},{n:'Sale',c:COL.s,v:k=>D.months[k].s},{n:'Asset sale',c:COL.a,v:k=>D.months[k].a}];
+    const tot=ks.reduce((a,k)=>a+series.reduce((t,s)=>t+(s.v(k)||0),0),0);
+    const last=ks[ks.length-1];
+    body.replaceChildren(legend(series),chart(ks,series,k=>openMonth(k,kind)),
+      h('div',{class:'rv-note'},'Total '+money(tot)+' · '+mLabel(ks[0])+' – '+mLabel(last)+'. Month = contract close date. Click any bar for that month’s products. '+(last?mLabel(last)+' is only part of the month (files exported '+((D.files.lines.match(/(\d{4})\.(\d{2})\.(\d{2})/)||[]).slice(1).join('-')||'recently')+').':'')),
+      kind==='all'?monthTable(D,ks):null)
+  }).catch(e=>body.replaceChildren(h('div',{class:'rv-note',style:'color:var(--bad)'},'Could not load the files: '+(e&&e.message||e))));
+  return card}
+function monthTable(D,ks){return table([{l:'Month',f:k=>mLabel(k)},{l:'Contracts',n:1,f:k=>num(D.months[k].n)},{l:'Rental',n:1,f:k=>money(D.months[k].r)},{l:'Sale',n:1,f:k=>money(D.months[k].s)},{l:'Asset sale',n:1,f:k=>money(D.months[k].a)},{l:'Total',n:1,f:k=>money(D.months[k].r+D.months[k].s+D.months[k].a+D.months[k].dw)}],ks.slice().reverse(),k=>openMonth(k,'all'))}
+
+function hookSvgMonths(root){
+  root.querySelectorAll('svg').forEach(svg=>{if(svg.dataset.rvm||svg.classList.contains('rv-chart'))return;
+    const labels=[...svg.querySelectorAll('text')].map(t=>labelToMonth(t.textContent)).filter(Boolean);const rects=[...svg.querySelectorAll('rect')].filter(r=>+r.getAttribute('height')>0||r.getAttribute('height')==='0');
+    if(!labels.length||labels.length!==rects.length)return;svg.dataset.rvm='1';
+    const pop=svg.closest('.invpop');
+    rects.forEach((r,i)=>{r.style.cursor='pointer';r.addEventListener('click',e=>{e.stopPropagation();if(pop){const k=popKey(pop);if(k)openItem(k,labels[i]);else openMonth(labels[i])}else openMonth(labels[i],'all')})});
+    svg.closest('.card,.colwrap')&&svg.closest('.card,.colwrap').classList.add('rv-mbar')})}
+function popKey(pop){const txt=[...pop.querySelectorAll('div,span,p')].map(x=>x.childNodes.length===1&&x.firstChild.nodeType===3?x.textContent.trim():'').filter(Boolean);for(const t of txt){if(!t.includes('·'))continue;const k=t.split(/\s*·\s*/)[0].trim();if(/^[A-Za-z0-9_\-\/\.]{2,30}$/.test(k)&&(!RV.d||RV.d.byKey.has(k.toUpperCase())))return k}return null}
+
+function hookRows(card,keyCol){if(!card)return;const t=card.querySelector('table');if(!t)return;t.classList.add('rv-click');
+  if(t.dataset.rvr)return;t.dataset.rvr='1';t.addEventListener('click',e=>{const tr=e.target.closest('tbody tr');if(!tr||e.target.closest('a,button,input,select'))return;const k=(tr.children[keyCol||0]||{}).textContent;if(k&&k.trim()){e.stopPropagation();openItem(k.trim())}},true)}
+
+function bestSearch(v){const card=[...v.querySelectorAll('.card')].find(c=>/A items make up 80%/.test(c.textContent)&&c.querySelector('table'));if(!card)return;
+  let inp=card.querySelector('.rv-in');const note=[...card.querySelectorAll('*')].find(x=>x.children.length<=2&&/^A items make up 80%/.test(x.textContent.trim()));
+  if(!inp){inp=h('input',{class:'rv-in',type:'search',placeholder:'Search best sellers — product, description or class…'});inp.addEventListener('input',()=>filt(card,inp.value));if(note)note.before(inp);else card.prepend(inp)}
+  filt(card,inp.value)}
+function filt(card,s){s=(s||'').trim().toLowerCase();card.querySelectorAll('tbody tr').forEach(tr=>{tr.style.display=!s||tr.textContent.toLowerCase().includes(s)?'':'none'})}
+
+function apply(){
+  if(!/^#products/.test(location.hash||''))return;const v=document.querySelector('#main .view');if(!v||!v.querySelector('.invtabs'))return;
+  const tab=activeTab();
+  if(tab==='Overview'){const c=cardByTitle(v,/^Sales by month/);if(c&&!v.querySelector('[data-rv="all"]')){c.replaceWith(revCard('all'))}}
+  if(tab==='Rental fleet'&&!v.querySelector('[data-rv="r"]')){const first=v.querySelector('.card');if(first)first.before(revCard('r'))}
+  if(tab==='All inventory'&&!v.querySelector('[data-rv="s"]')){const first=v.querySelector('.card');if(first)first.before(revCard('s'))}
+  if(tab==='Rental fleet')hookRows(cardByTitle(v,/^All rental items/),0);
+  if(tab==='All inventory')hookRows(cardByTitle(v,/^All inventory items/),0);
+  if(tab==='Best sellers')bestSearch(v);
+  hookSvgMonths(v);
+}
+function applyPop(){document.querySelectorAll('.fmt-scrim .invpop').forEach(p=>{hookSvgMonths(p);if(!p.querySelector('.rv-hint')&&p.querySelector('svg')){p.querySelector('svg').closest('div').after(h('div',{class:'rv-note rv-hint'},'Click a bar to see that month’s contracts, or ',h('a',{href:'#',onclick:e=>{e.preventDefault();const k=popKey(p);if(k)openItem(k)}},'open every month for this product'),'.'))}})}
+let tm=0;const sched=()=>{if(tm)return;tm=setTimeout(()=>{tm=0;try{apply();applyPop()}catch(e){console.warn('rv',e)}},120)};
+new MutationObserver(sched).observe(document.body,{childList:true,subtree:true});
+addEventListener('hashchange',sched);
+/* warm the data in the background once someone opens Products */
+let warmed=false;setInterval(()=>{if(!warmed&&/^#products/.test(location.hash||'')&&window.firebase&&firebase.auth&&firebase.auth().currentUser){warmed=true;data().catch(()=>{warmed=false})}},2000);
+window.rvOpenItem=openItem;window.rvOpenMonth=openMonth;
+})();
+</script>
 </body>
 </html>
